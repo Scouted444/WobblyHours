@@ -38,7 +38,7 @@ static func glass(color := Color(0.7, 0.85, 1.0, 0.25)) -> StandardMaterial3D:
 	_cache[key] = m
 	return m
 
-## kind: planks, tiles, carpet, checker, stripes, grass, concrete
+## kind: planks, tiles, carpet, checker, stripes, shingles, grass, bricks, corrugated, concrete
 ## tile_m = how many metres one texture repeat covers (world-space, so any box tiles evenly).
 static func textured(kind: String, tint := Color.WHITE, tile_m := 2.0, rough := 0.85) -> StandardMaterial3D:
 	var key := "t%s_%s_%s_%s" % [kind, tint.to_html(), tile_m, rough]
@@ -122,6 +122,24 @@ static func _texture(kind: String) -> ImageTexture:
 					elif roll > 0.95:
 						n *= 0.72
 					img.set_pixel(x, y, Color(0.25 * n, 0.55 * n, 0.19 * n))
+		"bricks":
+			for row in 8:
+				var off2 := 0 if row % 2 == 0 else 16
+				for y in 16:
+					for x in 128:
+						var bi := int((x + off2) / 32) + row * 7
+						var tone2 := 0.85 + 0.15 * sin(float(bi) * 12.9898)
+						var n2 := rng.randf_range(0.92, 1.04) * tone2
+						var c2 := Color(0.62 * n2, 0.3 * n2, 0.22 * n2)
+						if y < 2 or (x + off2) % 32 < 2:
+							c2 = Color(0.72, 0.7, 0.66)
+						img.set_pixel(x, row * 16 + y, c2)
+		"corrugated":
+			for y in 128:
+				for x in 128:
+					var ridge := 0.78 + 0.22 * sin(float(x) * TAU / 16.0)
+					var rust := 1.0 - 0.25 * maxf(0.0, sin(float(x) * 0.07 + float(y) * 0.05) * sin(float(y) * 0.11)) + rng.randf_range(-0.04, 0.03)
+					img.set_pixel(x, y, Color(ridge * rust, ridge * rust * 0.97, ridge * rust * 0.93))
 		_:  # concrete
 			for y in 128:
 				for x in 128:

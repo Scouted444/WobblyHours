@@ -43,6 +43,7 @@ func _go() -> void:
 	_report_town()
 	await _seat_report()
 	await _ragdoll_test()
+	await _crash_test()
 
 	# --- spawn one of everything next to me
 	_log("spawning")
@@ -326,3 +327,21 @@ func _ragdoll_test() -> void:
 		await _wait(4.0)
 		if is_instance_valid(npc):
 			_log("ragdoll: dead=%s frozen=%s" % [npc.dead, npc._ragdoll != null and npc._ragdoll.active and npc._ragdoll.torso().freeze])
+
+
+func _crash_test() -> void:
+	var a := world.spawn_car("sedan", Vector3(112.0, 0.0, -7.0), -PI * 0.5)
+	var b := world.spawn_car("truck", Vector3(128.0, 0.0, -7.0), PI * 0.5)
+	b.has_alarm = true
+	await _wait(0.6)
+	a.linear_velocity = Vector3(24.0, 0.0, 0.0)
+	await _wait(1.5)
+	_log("crash: sedan hp %d, truck hp %d, truck alarm %s" % [a.car_hp, b.car_hp, b.alarm_on])
+	a.car_damage(500)
+	await _wait(9.5)
+	if is_instance_valid(a):
+		_log("crash: burnt out = %s" % a.wrecked)
+	if is_instance_valid(a):
+		a.queue_free()
+	if is_instance_valid(b):
+		b.queue_free()

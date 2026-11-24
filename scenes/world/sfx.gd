@@ -81,6 +81,9 @@ static func _dur(kind: String) -> float:
 		"boom": return 1.8
 		"launch": return 1.1
 		"honk": return 0.55
+		"crash": return 1.1
+		"glass": return 0.8
+		"alarm": return 0.9
 		"pickup": return 0.22
 		"chat": return 0.18
 	return 0.3
@@ -209,6 +212,35 @@ static func _samples(kind: String) -> PackedFloat32Array:
 				var sq := (1.0 if sin(ph) > 0.0 else -1.0) + (1.0 if sin(ph2) > 0.0 else -1.0)
 				lp = lerpf(lp, sq, 0.2)
 				v = lp * 0.22 * minf(t * 300.0, 1.0) * (1.0 if t < 0.4 else exp(-(t - 0.4) * 30.0))
+			"crash":
+				# a crunch of metal: a heavy thump, scraping noise and a few rattling clanks
+				lp = lerpf(lp, noise, 0.25)
+				lp2 = lerpf(lp2, noise, 0.05)
+				ph += TAU * (70.0 - 30.0 * t) / RATE
+				var clank := 0.0
+				for ck in 4:
+					var ct0 := 0.05 + ck * 0.17
+					if t > ct0:
+						var cdt := t - ct0
+						clank += sin(TAU * (380.0 + ck * 230.0) * cdt) * exp(-cdt * 18.0) * 0.25
+				v = sin(ph) * exp(-t * 9.0) * 1.0 + lp * exp(-t * 5.0) * 1.1 + lp2 * exp(-t * 2.5) * 0.8 + noise * exp(-t * 60.0) * 0.8 + clank
+			"glass":
+				# shatter: a bright crack, then tinkling bits
+				v = noise * exp(-t * 40.0) * 0.7
+				if bub_t < 0.0 and rng.randf() < 0.004 * exp(-t * 3.0):
+					bub_t = 0.0
+					bub_f = rng.randf_range(2500.0, 6000.0)
+				if bub_t >= 0.0:
+					v += sin(TAU * bub_f * bub_t) * exp(-bub_t * 60.0) * 0.35
+					bub_t += 1.0 / RATE
+					if bub_t > 0.06:
+						bub_t = -1.0
+			"alarm":
+				# classic car alarm warble (played back to back while it's going off)
+				var af := 900.0 + 450.0 * sin(TAU * 5.0 * t)
+				ph += TAU * af / RATE
+				lp = lerpf(lp, 1.0 if sin(ph) > 0.0 else -1.0, 0.25)
+				v = lp * 0.22 * minf(t * 200.0, 1.0) * minf((dur - t) * 200.0, 1.0)
 			"pickup":
 				var pf := 660.0 if t < 0.09 else 990.0
 				v = sin(TAU * pf * t) * 0.3 * exp(-fmod(t, 0.09) * 14.0)

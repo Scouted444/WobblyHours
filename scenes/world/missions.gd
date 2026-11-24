@@ -248,7 +248,7 @@ func _find_car(kind: String, near: Vector3) -> Prop:
 	var best_d := 1e9
 	for n in get_tree().get_nodes_in_group("props"):
 		var p := n as Prop
-		if p == null or p.kind != kind or p.exploded:
+		if p == null or p.kind != kind or p.exploded or p.wrecked or p.car_hp <= 0:
 			continue
 		var d := p.global_position.distance_to(near)
 		if d < best_d:
@@ -263,7 +263,10 @@ func _spawn_mark(kind: String) -> Prop:
 	spots.shuffle()
 	for sp in spots:
 		if _world._lane_clear(sp["pos"]):
-			return _world.spawn_car(kind, sp["pos"], float(sp["yaw"]))
+			var c := _world.spawn_car(kind, sp["pos"], float(sp["yaw"]))
+			if c != null:
+				c.has_alarm = true
+			return c
 	var ls := town.random_lane_spot()
 	return _world.spawn_car(kind, ls["pos"], float(ls["yaw"]), 1 + randi() % 100000, ls["route"])
 

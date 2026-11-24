@@ -397,6 +397,9 @@ func explode_at(pos: Vector3, radius: float, power: float) -> void:
 			continue
 		if prop.in_cart != null:
 			prop.leave_cart()
+		if Prop.is_car(prop.kind):
+			prop.car_blast(dir * power * falloff * prop.mass * 0.9, int(85.0 * falloff) + 10)
+			continue
 		prop.apply_central_impulse(dir * power * falloff * minf(prop.mass, 3.0))
 		prop.chain_explode()
 	for n2 in get_tree().get_nodes_in_group("npcs"):
@@ -1262,7 +1265,9 @@ func _populate_town(start := false) -> void:
 		for sp in spots:
 			var k: String = str(sp.get("kind", kinds[n % kinds.size()]))
 			if sp.has("kind") or n < 7:
-				spawn_car(k, sp["pos"], float(sp["yaw"]))
+				var pc := spawn_car(k, sp["pos"], float(sp["yaw"]))
+				if pc != null:
+					pc.has_alarm = true
 				n += 1
 	for i in 6:
 		_town_tick(10.0)   # a few cars and a dozen people straight away, the rest arrive over the next minute

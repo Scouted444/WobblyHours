@@ -275,14 +275,14 @@ func _street() -> void:
 	var yellow := Mats.solid(Color(0.98, 0.82, 0.15), 0.6)
 	var white := Mats.solid(Color(0.95, 0.95, 0.95), 0.6)
 	_b(self, Vector3(0, 0.006, 47.2), Vector3(88.0, 0.012, 3.6), walk, false)             # pavement by our fence
-	_b(self, Vector3(0, 0.012, 45.4), Vector3(4.0, 0.012, 2.2), walk, false)              # path through the gate
+	_b(self, Vector3(0, 0.018, 45.4), Vector3(4.0, 0.024, 2.2), walk, false)              # path through the gate
 	_b(self, Vector3(0, 0.008, 53.0), Vector3(88.0, 0.012, 8.0), asphalt, false)           # road
 	for i in 22:                                                                           # dashed centre line
-		_b(self, Vector3(-42.0 + i * 4.0, 0.016, 53.0), Vector3(2.0, 0.01, 0.15), yellow, false)
+		_b(self, Vector3(-42.0 + i * 4.0, 0.02, 53.0), Vector3(2.0, 0.024, 0.15), yellow, false)
 	for i in 7:                                                                            # zebra crossing to the shop
-		_b(self, Vector3(-3.0 + i * 1.0, 0.017, 53.0), Vector3(0.55, 0.01, 7.0), white, false)
+		_b(self, Vector3(-3.0 + i * 1.0, 0.02, 53.0), Vector3(0.55, 0.024, 7.0), white, false)
 	_b(self, Vector3(0, 0.006, 59.0), Vector3(88.0, 0.012, 4.0), walk, false)             # pavement by the shop
-	_b(self, Vector3(0, 0.006, 61.2), Vector3(2 * SHOP_X + 4.0, 0.012, 1.0), walk, false)
+	_b(self, Vector3(0, 0.006, 61.35), Vector3(2 * SHOP_X + 4.0, 0.012, 0.7), walk, false)
 	var pole := Mats.solid(Color(0.3, 0.32, 0.35), 0.4, 0.6)
 	for x in [-24.0, -12.0, 14.0, 26.0]:                                                  # street lights
 		for side in [0, 1]:

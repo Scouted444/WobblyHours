@@ -1219,8 +1219,8 @@ func _find_rocket() -> Prop:
 			continue
 		var d := p.global_position.distance_to(global_position + Vector3.UP)
 		if Prop.is_car(p.kind):
-			if d > 3.6 or p.rider == get_multiplayer_authority():
-				continue   # cars: you can always pull the driver out
+			if d > 3.6 or p.rider == get_multiplayer_authority() or p.wrecked:
+				continue   # cars: you can always pull the driver out (but burnt-out wrecks stay put)
 		elif Prop.is_vehicle(p.kind) and (d > 3.0 or (p.rider != 0 and (p.kind != "cart" or p.passenger != 0))):
 			continue
 		if d < best_d:
@@ -1326,6 +1326,16 @@ func _unstash() -> void:
 		_set_equipped(k, t)
 	elif inventory.size() < INVENTORY_SIZE:
 		inventory.append([k, t])
+
+## Server: a crash threw me out through the windscreen.
+@rpc("any_peer", "call_local", "reliable")
+func thrown_out(at: Vector3, vel: Vector3) -> void:
+	var sender := multiplayer.get_remote_sender_id()
+	if (sender != 0 and sender != 1) or not is_multiplayer_authority():
+		return
+	global_position = at
+	velocity = vel
+	set_ragdoll(true, vel)
 
 ## Server: a job took this out of my hands (delivered).
 @rpc("any_peer", "call_local", "reliable")
@@ -1880,7 +1890,10 @@ func _update_prompt() -> void:
 		elif _ride.kind == "coupe":
 			_set_prompt("W/S drive   A/D steer   F or SPACE get out")
 		elif Prop.is_car(_ride.kind):
-			_set_prompt("W/S drive   A/D steer   LMB horn%s   F get out" % ("   RMB lights" if _ride.kind == "police" else ""))
+			if _ride.car_hp <= 0:
+				_set_prompt("The engine's dead and it's on fire!   F GET OUT")
+			else:
+				_set_prompt("W/S drive   A/D steer   LMB horn%s   F get out" % ("   RMB lights" if _ride.kind == "police" else ""))
 		else:
 			_set_prompt("Look to steer   SPACE bail out")
 		return

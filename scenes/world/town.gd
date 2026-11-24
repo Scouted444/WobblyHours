@@ -153,8 +153,16 @@ func _abox(center: Vector3, size: Vector3, mat: Material, collide := false) -> v
 	_box(Transform3D(Basis(), center), size, mat, collide)
 
 ## Flat piece of ground cover (visual only), top at y.
+## Ground layers, each at its own height (2 cm+ apart, so no two ever fight over the same pixels):
+const Y_ROAD := 0.02
+const Y_MARK := 0.04     # road paint
+const Y_LAWN := 0.045    # front lawns
+const Y_PAVE := 0.07     # pavements, parking lot, garage floor (a little kerb up from the road)
+const Y_TOP := 0.095     # paint on the lot, planted beds, oil stains
+
+## Flat ground cover, a solid slab from the grass up to height y (so kerbs have a side, not a gap).
 func _flat(x0: float, z0: float, x1: float, z1: float, y: float, mat: Material) -> void:
-	_abox(Vector3((x0 + x1) * 0.5, y - 0.01, (z0 + z1) * 0.5), Vector3(absf(x1 - x0), 0.02, absf(z1 - z0)), mat)
+	_abox(Vector3((x0 + x1) * 0.5, y * 0.5 - 0.005, (z0 + z1) * 0.5), Vector3(absf(x1 - x0), y + 0.01, absf(z1 - z0)), mat)
 
 func _commit() -> void:
 	for mat in _batch:
@@ -203,10 +211,10 @@ func _roads() -> void:
 	var ns := [[90.0, -4.0, 110.0], [150.0, -4.0, 110.0], [196.0, -4.0, 110.0]]
 	for r in ew:
 		var z: float = r[0]
-		_flat(r[1], z - ROAD_HALF, r[2], z + ROAD_HALF, 0.016, _m_asphalt)
+		_flat(r[1], z - ROAD_HALF, r[2], z + ROAD_HALF, Y_ROAD, _m_asphalt)
 	for r2 in ns:
 		var x: float = r2[0]
-		_flat(x - ROAD_HALF, r2[1], x + ROAD_HALF, r2[2], 0.017, _m_asphalt)
+		_flat(x - ROAD_HALF, r2[1], x + ROAD_HALF, r2[2], Y_ROAD, _m_asphalt)
 	var xs := [90.0, 150.0, 196.0]
 	var zs := [0.0, 53.0, 106.0]
 	# dashed middle lines (not across the junctions)
@@ -219,7 +227,7 @@ func _roads() -> void:
 				if absf(x - float(jx)) < ROAD_HALF + 1.5:
 					near_junction = true
 			if not near_junction:
-				_flat(x - 1.0, z3 - 0.08, x + 1.0, z3 + 0.08, 0.022, _m_yellow)
+				_flat(x - 1.0, z3 - 0.08, x + 1.0, z3 + 0.08, Y_MARK, _m_yellow)
 			x += 4.0
 	for r4 in ns:
 		var x4: float = r4[0]
@@ -230,7 +238,7 @@ func _roads() -> void:
 				if absf(z4 - float(jz)) < ROAD_HALF + 1.5:
 					near = true
 			if not near:
-				_flat(x4 - 0.08, z4 - 1.0, x4 + 0.08, z4 + 1.0, 0.022, _m_yellow)
+				_flat(x4 - 0.08, z4 - 1.0, x4 + 0.08, z4 + 1.0, Y_MARK, _m_yellow)
 			z4 += 4.0
 	# zebra crossings on every road leaving a junction
 	for ni in range(1, road_nodes.size()):
@@ -243,7 +251,7 @@ func _roads() -> void:
 			for k in 6:
 				var cp := c + dir * (ROAD_HALF + 1.4) + side * (-2.6 + k * 1.05)
 				var ext := dir.abs() * 1.0 + side.abs() * 0.25
-				_flat(cp.x - ext.x, cp.z - ext.z, cp.x + ext.x, cp.z + ext.z, 0.023, _m_line)
+				_flat(cp.x - ext.x, cp.z - ext.z, cp.x + ext.x, cp.z + ext.z, Y_MARK, _m_line)
 	# street name signs at the junctions
 	var names_ew := {0.0: "North Rd", 53.0: "Main St", 106.0: "South Rd"}
 	var names_ns := {90.0: "Oak Ave", 150.0: "Elm Ave", 196.0: "Bay Ave"}
@@ -410,12 +418,12 @@ func _lot_lines(x0: float, z0: float, x1: float, z1: float, along_x: bool, spaci
 	if along_x:
 		var x := x0
 		while x <= x1 + 0.01:
-			_flat(x - 0.06, z0, x + 0.06, z1, 0.03, _m_line)
+			_flat(x - 0.06, z0, x + 0.06, z1, Y_TOP, _m_line)
 			x += spacing
 	else:
 		var z := z0
 		while z <= z1 + 0.01:
-			_flat(x0, z - 0.06, x1, z + 0.06, 0.03, _m_line)
+			_flat(x0, z - 0.06, x1, z + 0.06, Y_TOP, _m_line)
 			z += spacing
 
 func _blocks() -> void:
@@ -428,15 +436,15 @@ func _blocks() -> void:
 	var W2 := Rect2(X0 + 0.2, 57, 86.0 - X0 - 0.2, Z1 - 57.0)
 	for r in [A, B, C, D]:
 		var rr: Rect2 = r
-		_flat(rr.position.x, rr.position.y, rr.end.x, rr.end.y, 0.03, _m_pave)
-		_flat(rr.position.x + 8.0, rr.position.y + 8.0, rr.end.x - 8.0, rr.end.y - 8.0, 0.035, _m_grass)   # back yards
+		_flat(rr.position.x, rr.position.y, rr.end.x, rr.end.y, Y_PAVE, _m_pave)
+		_flat(rr.position.x + 8.0, rr.position.y + 8.0, rr.end.x - 8.0, rr.end.y - 8.0, Y_TOP, _m_grass)   # back yards
 	# edge strips (outside the outer roads)
-	_flat(86.0, Z0, X1, -4.0, 0.03, _m_pave)
-	_flat(86.0, 110.0, X1, Z1, 0.03, _m_pave)
-	_flat(200.0, -4.0, X1, 110.0, 0.03, _m_pave)
-	_flat(W2.position.x, W2.position.y, W2.end.x, W2.end.y, 0.025, _m_grass)
-	_flat(81.5, 57.0, 86.0, Z1, 0.03, _m_pave)       # W2's pavements along Oak Ave and Main St
-	_flat(W2.position.x, 57.0, 86.0, 61.5, 0.031, _m_pave)
+	_flat(86.0, Z0, X1, -4.0, Y_PAVE, _m_pave)
+	_flat(86.0, 110.0, X1, Z1, Y_PAVE, _m_pave)
+	_flat(200.0, -4.0, X1, 110.0, Y_PAVE, _m_pave)
+	_flat(W2.position.x, 61.5, 81.5, W2.end.y, Y_LAWN, _m_grass)   # front lawns (not under the pavements)
+	_flat(81.5, 57.0, 86.0, Z1, Y_PAVE, _m_pave)       # W2's pavements along Oak Ave and Main St
+	_flat(W2.position.x, 57.0, 81.5, 61.5, Y_PAVE, _m_pave)
 
 	# ---- A: Wobbly Jobs on the Main St corner, shops, offices
 	_row(A, "s", "Main St", 10.0, 13.0, ["sign:WOBBLY JOBS", "sign:BURGER BARN", "office", "sign:LAUNDROMAT"], 5.0, 5.0, 101)
@@ -460,37 +468,15 @@ func _blocks() -> void:
 	_row(W2, "e", "Oak Ave", 9.0, 11.0, ["house", "house", "gap", "house", "house", "house"], 5.0, 4.0, 80)
 	_row(W2, "n", "Main St", 9.0, 11.0, ["house", "gap", "house"], 2.0, 16.0, 150)
 
-	# ---- W1: the parking lot with the Chop Shop at the back
-	_flat(W1.position.x, W1.position.y, W1.end.x, W1.end.y, 0.03, _m_lot)
+	# ---- W1: the parking lot with the Chop Shop at the back (the lot is cut round the garage floor)
+	_flat(W1.position.x, 4.0, W1.end.x, W1.end.y, Y_PAVE, _m_lot)
+	_flat(68.2, W1.position.y, W1.end.x, 4.0, Y_PAVE, _m_lot)
 	_lot_lines(56.0, 14.0, 82.0, 19.0, true, 3.0)
 	_lot_lines(56.0, 30.0, 82.0, 35.0, true, 3.0)
 	for i in 8:
 		parking.append({"pos": Vector3(57.5 + i * 3.0, 0.0, 16.5), "yaw": 0.0})
 		parking.append({"pos": Vector3(57.5 + i * 3.0, 0.0, 32.5), "yaw": PI})
-	# chop shop: a garage with a big open door, sign, oil stains
-	var g := Transform3D(Basis(Vector3.UP.cross(Vector3.BACK), Vector3.UP, Vector3.BACK), Vector3(60.0, 0.0, 4.0))
-	var gw := 16.0
-	var gd := 12.0
-	var gh := 6.0
-	var corr := Mats.textured("stripes", Color(0.55, 0.6, 0.62), 0.8)
-	_box(g * Transform3D(Basis(), Vector3(-gw * 0.5 + 0.2, gh * 0.5, -gd * 0.5)), Vector3(0.4, gh, gd), corr, true)
-	_box(g * Transform3D(Basis(), Vector3(gw * 0.5 - 0.2, gh * 0.5, -gd * 0.5)), Vector3(0.4, gh, gd), corr, true)
-	_box(g * Transform3D(Basis(), Vector3(0, gh * 0.5, -gd + 0.2)), Vector3(gw, gh, 0.4), corr, true)
-	_box(g * Transform3D(Basis(), Vector3(0, gh + 0.15, -gd * 0.5)), Vector3(gw + 0.4, 0.3, gd + 0.4), _m_dark, true)
-	_box(g * Transform3D(Basis(), Vector3(-gw * 0.5 + 1.6, gh * 0.5 + 1.5, -0.1)), Vector3(3.0, gh - 3.0, 0.3), corr, true)
-	_box(g * Transform3D(Basis(), Vector3(gw * 0.5 - 1.6, gh * 0.5 + 1.5, -0.1)), Vector3(3.0, gh - 3.0, 0.3), corr, true)
-	_box(g * Transform3D(Basis(), Vector3(0, gh - 0.75, -0.1)), Vector3(gw, 1.5, 0.3), corr, true)
-	_box(g * Transform3D(Basis(), Vector3(0, gh - 0.75, 0.08)), Vector3(9.0, 1.1, 0.1), Mats.solid(Color(0.12, 0.12, 0.12), 0.6))
-	_sign("CHOP SHOP", g * Vector3(0, gh - 0.75, 0.15), Vector3.BACK, 96, Color(1.0, 0.75, 0.2), Color(0.3, 0.1, 0.0))
-	_sign("no questions asked", g * Vector3(0, gh - 1.45, 0.15), Vector3.BACK, 32, Color(0.9, 0.9, 0.9))
-	for k in 5:
-		_flat(52.0 + k * 3.2, -6.0 + (k % 2) * 2.5, 53.5 + k * 3.2, -4.6 + (k % 2) * 2.5, 0.033, Mats.solid(Color(0.08, 0.08, 0.09), 0.3))
-	for k2 in 3:   # tyre stacks and a workbench inside
-		_abox(Vector3(54.0 + k2 * 1.2, 0.45, -5.5), Vector3(0.9, 0.9, 0.9), Mats.solid(Color(0.07, 0.07, 0.08), 0.9), true)
-	_abox(Vector3(66.0, 0.5, -6.5), Vector3(3.0, 1.0, 1.0), Mats.textured("planks", Color(0.7, 0.55, 0.4), 0.6), true)
-	chop_shop = Vector3(60.0, 0.0, 0.0)
-	_flat(55.0, -3.0, 65.0, 4.0, 0.034, Mats.solid(Color(0.75, 0.6, 0.1), 0.6))   # yellow drop-off box
-	_flat(55.4, -2.6, 64.6, 3.6, 0.035, _m_lot)
+	_chop_shop(W1)
 	# lot booth + sign at the entrance
 	_abox(Vector3(79.0, 1.3, 24.0), Vector3(2.2, 2.6, 2.2), _walls[3], true)
 	_abox(Vector3(79.0, 2.75, 24.0), Vector3(2.6, 0.3, 2.6), _trims[1])
@@ -553,6 +539,197 @@ func _pizza_stand(p: Vector3, f: Vector3) -> void:
 		_abox(p + along * (-0.6 + k * 0.6) + Vector3(0, 1.2, 0), Vector3(0.45, 0.06, 0.45), Mats.solid(Color(0.85, 0.7, 0.45), 0.8))
 	_sign("PIZZA PICK-UP", p + Vector3(0, 1.7, 0) + f * 0.3, f, 32, Color(1, 0.9, 0.5))
 	pizza_counter = p + f * 1.0
+
+# =================================================================== chop shop
+## The Chop Shop: brick-and-tin garage with a half-open roller door, a car up on the lift, tool wall,
+## workbench, drums and tyres, a junkyard of crushed cars behind a chain-link fence.
+## Stolen cars get driven onto the yellow box on the floor (chop_shop).
+func _chop_shop(lot: Rect2) -> void:
+	var brick := Mats.textured("bricks", Color.WHITE, 2.4)
+	var tin := Mats.textured("corrugated", Color(0.36, 0.5, 0.5), 1.0, 0.55)
+	var tin_roof := Mats.textured("corrugated", Color(0.55, 0.52, 0.48), 1.0, 0.6)
+	var floor_m := Mats.textured("concrete", Color(0.66, 0.65, 0.62), 2.0)
+	var gravel := Mats.textured("concrete", Color(0.45, 0.42, 0.38), 0.8)
+	var steel := Mats.solid(Color(0.62, 0.64, 0.66), 0.35, 0.7)
+	var yellow := Mats.solid(Color(1.0, 0.78, 0.08), 0.6)
+	var black := Mats.solid(Color(0.06, 0.06, 0.07), 0.7)
+	var red := Mats.solid(Color(0.78, 0.1, 0.08), 0.5, 0.2)
+	var glass := Mats.solid(Color(0.2, 0.25, 0.26), 0.1, 0.4)
+	var x0 := 52.0
+	var x1 := 68.0
+	var zb := -8.0     # back wall
+	var zf := 4.0      # front (the roller door faces the lot, +Z)
+	var h := 6.0
+	var band := 1.6    # brick up to here, tin above
+	var dl := 55.0     # door opening x dl..dr, up to door_h
+	var dr := 65.0
+	var door_h := 4.6
+
+	# floors: the garage and the strip behind it, gravel junkyard to the west
+	_flat(51.8, lot.position.y, 68.2, 4.0, Y_PAVE, floor_m)
+	_flat(lot.position.x, lot.position.y, 51.8, 4.0, Y_PAVE, gravel)
+
+	# walls: brick plinth, corrugated tin above
+	for wall in [[x0 + 0.15, (zb + zf) * 0.5, 0.3, zf - zb], [x1 - 0.15, (zb + zf) * 0.5, 0.3, zf - zb], [(x0 + x1) * 0.5, zb + 0.15, x1 - x0, 0.3]]:
+		var c := Vector3(float(wall[0]), 0.0, float(wall[1]))
+		var sz := Vector3(float(wall[2]), 0.0, float(wall[3]))
+		var thick := Vector3(0.06 if sz.x < 1.0 else 0.0, 0.0, 0.06 if sz.z < 1.0 else 0.0)
+		_abox(c + Vector3(0, band * 0.5, 0), Vector3(sz.x, band, sz.z) + thick, brick, true)
+		_abox(c + Vector3(0, band + (h - band) * 0.5, 0), Vector3(sz.x, h - band, sz.z), tin, true)
+	for side in [[x0, dl], [dr, x1]]:   # either side of the roller door
+		var a: float = side[0]
+		var b: float = side[1]
+		_abox(Vector3((a + b) * 0.5, band * 0.5, zf - 0.15), Vector3(b - a, band, 0.36), brick, true)
+		_abox(Vector3((a + b) * 0.5, band + (h - band) * 0.5, zf - 0.15), Vector3(b - a, h - band, 0.3), tin, true)
+	_abox(Vector3((dl + dr) * 0.5, door_h + (h - door_h) * 0.5, zf - 0.15), Vector3(dr - dl, h - door_h, 0.3), tin, true)
+	# hazard-striped door posts
+	for px in [dl + 0.1, dr - 0.1]:
+		var y := 0.0
+		var k := 0
+		while y < door_h - 0.01:
+			_abox(Vector3(px, y + 0.15, zf + 0.03), Vector3(0.22, 0.3, 0.1), yellow if k % 2 == 0 else black)
+			y += 0.3
+			k += 1
+	# roller door, rolled up two thirds: slats + the drum housing
+	for sl in 8:
+		var sy := door_h - 0.2 - sl * 0.17
+		_abox(Vector3((dl + dr) * 0.5, sy, zf - 0.32), Vector3(dr - dl - 0.2, 0.15, 0.05), steel)
+	_abox(Vector3((dl + dr) * 0.5, door_h - 0.2 - 7 * 0.17 - 0.1, zf - 0.32), Vector3(dr - dl - 0.2, 0.06, 0.08), black)
+	var drum := _cyl(self, Vector3((dl + dr) * 0.5, door_h + 0.25, zf - 0.45), 0.32, dr - dl, steel, false, Vector3(0, 0, 90))
+	drum.name = "DoorDrum"
+	# roof with overhang, gutter, turbine vents
+	_abox(Vector3((x0 + x1) * 0.5, h + 0.12, (zb + zf) * 0.5), Vector3(x1 - x0 + 0.8, 0.24, zf - zb + 0.8), tin_roof, true)
+	_abox(Vector3((x0 + x1) * 0.5, h - 0.02, zf + 0.42), Vector3(x1 - x0 + 0.8, 0.14, 0.14), steel)
+	for vx in [56.0, 63.0]:
+		_cyl(self, Vector3(vx, h + 0.55, -2.0), 0.3, 0.55, steel)
+		_cyl(self, Vector3(vx, h + 0.9, -2.0), 0.36, 0.12, steel)
+	# side windows: grimy glass behind bars
+	for wz in [-5.0, -1.0]:
+		for wx in [x0 - 0.02, x1 + 0.02]:
+			var outx := -1.0 if wx < 60.0 else 1.0
+			_abox(Vector3(wx, 3.0, wz), Vector3(0.06, 1.0, 1.6), glass)
+			for bi in 5:
+				_abox(Vector3(wx + outx * 0.05, 3.0, wz - 0.64 + bi * 0.32), Vector3(0.04, 1.1, 0.04), black)
+			_abox(Vector3(wx + outx * 0.04, 2.45, wz), Vector3(0.12, 0.08, 1.8), steel)
+	# the big sign: red board, a frame of bulbs, yellow letters
+	var sign_c := Vector3(60.0, 5.25, zf + 0.05)
+	_abox(sign_c, Vector3(8.6, 1.3, 0.12), red)
+	var bulb := Mats.glow(Color(1.0, 0.85, 0.5), 3.0)
+	for bx in 22:
+		var fx := -4.15 + bx * (8.3 / 21.0)
+		_abox(sign_c + Vector3(fx, 0.55, 0.08), Vector3(0.09, 0.09, 0.06), bulb)
+		_abox(sign_c + Vector3(fx, -0.55, 0.08), Vector3(0.09, 0.09, 0.06), bulb)
+	_sign("CHOP SHOP", sign_c + Vector3(0, 0.02, 0.09), Vector3.BACK, 110, Color(1.0, 0.85, 0.2), Color(0.25, 0.05, 0.0))
+	_abox(Vector3(x1 + 0.03, 3.9, 0.5), Vector3(0.08, 0.9, 4.2), Mats.solid(Color(0.95, 0.93, 0.85), 0.8))
+	_sign("AUTO PARTS - CASH ONLY", Vector3(x1 + 0.08, 4.0, 0.5), Vector3.RIGHT, 34, Color(0.15, 0.15, 0.15), Color(1, 1, 1))
+	_sign("no questions asked", Vector3(x1 + 0.08, 3.65, 0.5), Vector3.RIGHT, 24, Color(0.6, 0.1, 0.05), Color(1, 1, 1))
+	var neon := _sign("OPEN", Vector3(x0 - 0.06, 3.1, -1.0), Vector3.LEFT, 56, Color(1.0, 0.2, 0.25), Color(0.6, 0.0, 0.1))
+	neon.shaded = false
+	_light(Vector3(60.0, 5.6, zf + 1.2), Color(1.0, 0.75, 0.45), 1.4, 9.0)
+
+	# inside: strip lights
+	for lx in [55.5, 60.0, 64.5]:
+		_abox(Vector3(lx, 5.3, -2.0), Vector3(0.25, 0.08, 2.4), Mats.glow(Color(0.92, 0.97, 1.0), 2.2))
+		_abox(Vector3(lx, 5.65, -2.0), Vector3(0.02, 0.7, 0.02), black)
+	_light(Vector3(57.0, 5.0, -2.5), Color(0.92, 0.97, 1.0), 1.2, 9.0)
+	_light(Vector3(64.0, 5.0, -2.5), Color(0.92, 0.97, 1.0), 1.2, 9.0)
+	# the drop-off box (yellow outline + painted words)
+	var drop := Rect2(57.0, -3.0, 9.5, 6.5)
+	_flat(drop.position.x, drop.position.y, drop.end.x, drop.position.y + 0.15, Y_TOP, yellow)
+	_flat(drop.position.x, drop.end.y - 0.15, drop.end.x, drop.end.y, Y_TOP, yellow)
+	_flat(drop.position.x, drop.position.y, drop.position.x + 0.15, drop.end.y, Y_TOP, yellow)
+	_flat(drop.end.x - 0.15, drop.position.y, drop.end.x, drop.end.y, Y_TOP, yellow)
+	var words := _sign("DROP-OFF", Vector3(drop.get_center().x, Y_TOP + 0.005, drop.end.y - 0.7), Vector3.BACK, 120, Color(1.0, 0.8, 0.1), Color(0.3, 0.2, 0.0))
+	words.basis = Basis(Vector3.RIGHT, -PI * 0.5)
+	chop_shop = Vector3(drop.get_center().x, 0.0, drop.get_center().y)
+	# oil stains
+	for k2 in 6:
+		var sx := 53.0 + k2 * 2.3
+		var sz := -6.6 + (k2 % 3) * 1.4
+		_flat(sx, sz, sx + 0.9 + (k2 % 2) * 0.5, sz + 0.6 + (k2 % 3) * 0.2, Y_TOP, Mats.solid(Color(0.1, 0.1, 0.1), 0.15))
+
+	# two-post lift with a car up on it (back left)
+	var lift_c := Vector3(56.2, 0.0, -5.6)
+	for pz in [-4.15, -7.05]:
+		_abox(Vector3(lift_c.x, 1.75, pz), Vector3(0.32, 3.5, 0.32), yellow, true)
+		_abox(Vector3(lift_c.x, 3.55, pz), Vector3(0.45, 0.12, 0.45), yellow)
+		for ax in [-1.0, 1.0]:
+			_abox(Vector3(lift_c.x + ax * 1.0, 1.08, pz + (0.55 if pz > -5.6 else -0.55)), Vector3(2.0, 0.08, 0.12), steel)
+	_abox(Vector3(lift_c.x, 0.08, -5.6), Vector3(0.5, 0.06, 3.0), steel)
+	_m("sedan", lift_c + Vector3(0, 1.85, 0), 90.0, 1.0, self)
+	_solid(self, lift_c + Vector3(0, 1.85, 0), Vector3(4.5, 1.45, 1.84), 0.0)
+	# tool wall, bench, vice and tool chest (back right)
+	_abox(Vector3(63.5, 2.3, zb + 0.33), Vector3(5.0, 1.6, 0.05), Mats.textured("planks", Color(0.75, 0.6, 0.42), 0.8))
+	var rng2 := RandomNumberGenerator.new()
+	rng2.seed = 77
+	for t in 16:
+		var tx := 61.3 + (t % 8) * 0.6
+		var ty := 2.75 - int(t / 8) * 0.8
+		var tl := rng2.randf_range(0.3, 0.6)
+		_box(Transform3D(Basis(Vector3.BACK, rng2.randf_range(-0.3, 0.3)), Vector3(tx, ty - tl * 0.3, zb + 0.37)), Vector3(0.05, tl, 0.03), [steel, black, red][t % 3])
+	_abox(Vector3(63.5, 0.92, zb + 0.75), Vector3(4.6, 0.08, 0.8), Mats.textured("planks", Color(0.6, 0.45, 0.3), 0.6), true)
+	for lx2 in [61.4, 65.6]:
+		_abox(Vector3(lx2, 0.45, zb + 0.75), Vector3(0.08, 0.9, 0.7), black, true)
+	_abox(Vector3(62.0, 1.06, zb + 0.75), Vector3(0.35, 0.2, 0.2), Mats.solid(Color(0.15, 0.3, 0.55), 0.4, 0.4))
+	_abox(Vector3(64.5, 1.0, zb + 0.75), Vector3(0.5, 0.08, 0.3), steel)
+	_abox(Vector3(67.0, 0.6, -5.0), Vector3(0.7, 1.2, 1.2), red, true)
+	for dk in 5:
+		_abox(Vector3(66.63, 0.25 + dk * 0.2, -5.0), Vector3(0.02, 0.02, 1.0), steel)
+	# engine on a stand, a compressor, oil drums, tyres, spare parts
+	_abox(Vector3(64.5, 0.45, -3.6), Vector3(0.6, 0.06, 0.6), black, true)
+	_abox(Vector3(64.5, 0.85, -3.6), Vector3(0.7, 0.55, 0.55), Mats.solid(Color(0.3, 0.32, 0.35), 0.4, 0.6), true)
+	_abox(Vector3(64.5, 1.2, -3.6), Vector3(0.5, 0.15, 0.4), Mats.solid(Color(0.55, 0.12, 0.1), 0.4, 0.4))
+	_cyl(self, Vector3(53.0, 0.35, 2.8), 0.3, 0.7, red, true, Vector3(0, 0, 90))
+	var drum_cols := [Color(0.1, 0.25, 0.6), Color(0.65, 0.1, 0.08), Color(0.1, 0.35, 0.15), Color(0.1, 0.25, 0.6)]
+	for di in 4:
+		_cyl(self, Vector3(52.8 + (di % 2) * 0.65, 0.45, -7.2 + int(di / 2) * 0.68), 0.3, 0.9, Mats.solid(drum_cols[di], 0.45, 0.4), true)
+	var tyre := Mats.solid(Color(0.06, 0.06, 0.07), 0.9)
+	for ti in 7:
+		var tpos := Vector3(66.9, 0.12 + (ti % 4) * 0.24, 2.6 - int(ti / 4) * 0.8)
+		_cyl(self, tpos, 0.36, 0.23, tyre, ti % 4 == 0)
+	for ri in 3:   # rims hung on the side wall
+		_cyl(self, Vector3(x1 - 0.35, 2.4, -6.5 + ri * 0.9), 0.3, 0.12, steel, false, Vector3(0, 0, 90))
+	for pi2 in 2:  # car doors leaning on the wall
+		_box(Transform3D(Basis(Vector3.BACK, -0.25), Vector3(x0 + 0.55, 0.7, 0.5 + pi2 * 1.3)), Vector3(0.08, 1.2, 1.1), Mats.solid([Color(0.7, 0.1, 0.1), Color(0.2, 0.35, 0.7)][pi2], 0.35, 0.3))
+
+	# junkyard: chain-link fence, stacks of crushed cars, tyre piles
+	var jy := Rect2(lot.position.x + 0.3, lot.position.y + 0.3, 51.6 - lot.position.x - 0.3, 3.6 - lot.position.y)
+	var crushed := [Color(0.6, 0.15, 0.1), Color(0.2, 0.35, 0.6), Color(0.75, 0.72, 0.65), Color(0.25, 0.45, 0.25), Color(0.75, 0.6, 0.15), Color(0.3, 0.3, 0.32)]
+	var ci := 0
+	for col in 2:
+		for lvl in 3 - col:
+			var cc := Vector3(jy.position.x + 1.4 + col * 2.4, 0.33 + lvl * 0.62, jy.position.y + 5.0)
+			var yaw := rng2.randf_range(-0.12, 0.12)
+			var pm := Mats.solid(crushed[ci % crushed.size()], 0.5, 0.3)
+			_box(Transform3D(Basis(Vector3.UP, yaw), cc), Vector3(1.9, 0.6, 4.1), pm, true)
+			_box(Transform3D(Basis(Vector3.UP, yaw), cc + Vector3(0, 0.05, 0)), Vector3(1.94, 0.14, 2.0), glass)
+			ci += 1
+	for tp in 6:
+		_cyl(self, Vector3(jy.position.x + 1.0 + (tp % 3) * 0.75, 0.12 + int(tp / 3) * 0.24, jy.end.y - 1.2), 0.36, 0.23, tyre, tp < 3)
+	var post := Mats.solid(Color(0.55, 0.57, 0.6), 0.4, 0.7)
+	var wire := Mats.solid(Color(0.6, 0.62, 0.64), 0.4, 0.7)
+	var fz := jy.end.y
+	var fx := jy.position.x
+	while fx <= jy.end.x + 0.01:
+		_abox(Vector3(fx, 1.0, fz), Vector3(0.07, 2.0, 0.07), post, true)
+		fx += 2.4
+	_abox(Vector3(jy.get_center().x, 1.98, fz), Vector3(jy.size.x, 0.05, 0.05), post)
+	var wx2 := jy.position.x
+	while wx2 < jy.end.x:   # the mesh itself: a fine grid of wires
+		_abox(Vector3(wx2, 1.0, fz), Vector3(0.012, 1.96, 0.012), wire)
+		wx2 += 0.16
+	for wy in 13:
+		_abox(Vector3(jy.get_center().x, 0.05 + wy * 0.16, fz), Vector3(jy.size.x, 0.012, 0.012), wire)
+	_body_box(Vector3(jy.get_center().x, 1.0, fz), Vector3(jy.size.x, 2.0, 0.1))
+
+## A collider with nothing drawn (for see-through things like the chain-link fence).
+func _body_box(center: Vector3, size: Vector3) -> void:
+	var cs := CollisionShape3D.new()
+	var bs := BoxShape3D.new()
+	bs.size = size
+	cs.shape = bs
+	cs.position = center
+	_body.add_child(cs)
 
 # ============================================================ street furniture
 func _street_furniture() -> void:

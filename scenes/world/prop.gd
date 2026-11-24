@@ -149,6 +149,27 @@ var _ai_honk_t := 0.0
 var _driver_body: NpcBody
 var _driver_shown := -1
 var _siren_nodes: Array[Node3D] = []
+# --- crashes, damage, alarms (cars)
+const CRASH_DV := 4.5        # m/s of speed lost in one physics step that counts as a crash
+const EJECT_DV := 17.0       # ... and that throws you out through the windscreen
+var car_hp := 100            # synced: 0 = engine dead, on fire, about to blow
+var wrecked := false         # synced: burnt-out shell
+var alarm_on := false        # synced
+var has_alarm := false       # server: parked town cars are alarmed
+var _alarm_t := 0.0
+var _spin_t := 0.0           # server: out of control after a crash (real physics, no steering)
+var _flip_t := 0.0
+var _v_out := Vector3.ZERO
+var _crash_cd := 0.0
+var _burn_t := 0.0
+var _wreck_t := 0.0
+var _smoke: CPUParticles3D
+var _fire: CPUParticles3D
+var _alarm_snd_t := 0.0
+var _lamps: Array = []       # [MeshInstance3D, surface] of head and tail lamps (alarm flashing)
+var _lamp_on := false
+var _wreck_shown := false
+var _dent_cd := 0.0
 
 func _ready() -> void:
 	if visual_only:
@@ -228,7 +249,7 @@ func _ready() -> void:
 		cfg.add_property(^".:passenger")
 		cfg.property_set_replication_mode(^".:passenger", SceneReplicationConfig.REPLICATION_MODE_ON_CHANGE)
 	if is_car(kind):
-		for cp in [^".:driver_seed", ^".:siren"]:
+		for cp in [^".:driver_seed", ^".:siren", ^".:car_hp", ^".:wrecked", ^".:alarm_on"]:
 			cfg.add_property(cp)
 			cfg.property_set_replication_mode(cp, SceneReplicationConfig.REPLICATION_MODE_ON_CHANGE)
 	var sync := MultiplayerSynchronizer.new()
@@ -622,6 +643,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 
 ## Toy coupe: stays upright; with a driver it accelerates, steers and grips like a little car.
 func _drive_step(state: PhysicsDirectBodyState3D) -> void:
+	if is_car(kind) and _car_physics(state):
+		return
 	var t := state.transform
 	# heading from the forward vector (the body may be pitched on a slope)
 	var f3 := -t.basis.z
@@ -632,7 +655,7 @@ func _drive_step(state: PhysicsDirectBodyState3D) -> void:
 	var vel := state.linear_velocity
 	var cart := kind == "cart"
 	var car := is_car(kind)
-	var driven := rider != 0 or driver_seed != 0
+	var driven := (rider != 0 or driver_seed != 0) and car_hp > 0 and not wrecked
 	var boost := boosting and rider != 0 and kind == "coupe"   # only the toy car has rockets
 	var running := boosting and rider != 0 and cart
 	gravity_scale = 0.5 if boost else 1.0   # the boosters take some weight off, so ramps become jumps
@@ -699,6 +722,7 @@ func _drive_step(state: PhysicsDirectBodyState3D) -> void:
 		var back := right.cross(up).normalized()
 		basis_out = Basis(right, up, back)
 	state.transform = Transform3D(basis_out, t.origin)
+	_v_out = state.linear_velocity
 
 @rpc("any_peer", "call_local", "unreliable")
 func drive(throttle: float, steer: float, boost := false) -> void:
@@ -713,6 +737,7 @@ func _process(delta: float) -> void:
 	if is_car(kind) and not visual_only:
 		_update_driver()
 		_siren_fx()
+		_damage_fx(delta)
 		return
 	if kind == "coupe" and not visual_only:
 		_boost_fx(delta)
@@ -796,6 +821,8 @@ func _physics_process(delta: float) -> void:
 		_carry_contents()
 	if driver_seed != 0 and rider == 0:
 		_ai_drive(delta)
+	if is_car(kind):
+		_car_tick(delta)
 	if is_vehicle(kind) and rider != 0 and Time.get_ticks_msec() - _last_drive > 1500:
 		# the driver vanished (disconnected, respawned, fell over...): free the seat
 		var old := get_tree().get_first_node_in_group("world")
@@ -907,6 +934,8 @@ func hit(impulse: Vector3) -> void:
 	if in_cart != null:
 		leave_cart()   # a good whack knocks it out of the basket
 	apply_central_impulse(impulse.limit_length(60.0))
+	if is_car(kind):
+		car_damage(int(clampf(impulse.length() * 0.6, 3.0, 20.0)))
 	if kind == "barrel":
 		hp -= 1
 		if hp <= 0:
@@ -954,6 +983,8 @@ func ride() -> void:
 		return
 	if rider != 0 and not is_car(kind):
 		return
+	if wrecked:
+		return
 	var who := _sender()
 	if who == rider:
 		return
@@ -964,6 +995,8 @@ func ride() -> void:
 	var reach := 8.0 if kind == "rocket" else (4.2 if is_car(kind) else 3.2)
 	if pl == null or pl.global_position.distance_to(global_position) > reach:
 		return
+	if is_car(kind) and rider == 0 and driver_seed == 0:
+		trigger_alarm()   # breaking into a parked car
 	if is_car(kind) and world != null:
 		# hijack! whoever is in the driver's seat gets dragged out
 		if driver_seed != 0:
@@ -1148,6 +1181,385 @@ func _ai_drive(delta: float) -> void:
 		_ai_block_t = 0.0
 	_thr = thr
 	_last_drive = Time.get_ticks_msec()
+
+# ================================================================ crashes (cars)
+## Server, each physics step: spot crashes (a big drop in speed against something that isn't the
+## ground), and run real tumbling physics while the car is out of control, dead or parked.
+## Returns true when it handled the step (no arcade driving this step).
+func _car_physics(state: PhysicsDirectBodyState3D) -> bool:
+	var step := state.step
+	_crash_cd -= step
+	var v_in := state.linear_velocity
+	var dv := v_in - _v_out
+	var dvh := Vector2(dv.x, dv.z).length()
+	if dvh > CRASH_DV and _crash_cd <= 0.0:
+		var best := -1.0
+		var at := Vector3.ZERO
+		var other: Object = null
+		for i in state.get_contact_count():
+			if absf(state.get_contact_local_normal(i).y) > 0.75:
+				continue   # the ground
+			var imp := state.get_contact_impulse(i).length()
+			if imp > best:
+				best = imp
+				at = state.get_contact_local_position(i)
+				other = state.get_contact_collider_object(i)
+		if best >= 0.0:
+			_crash(dvh, at, other, _v_out)
+			# the hit throws the car about: a spin, and a big one can roll it
+			var roll := 0.15 if dvh > 13.0 else 0.03
+			state.angular_velocity += Vector3(randf_range(-roll, roll) * dvh, randf_range(-0.12, 0.12) * dvh, randf_range(-roll, roll) * dvh)
+			if dvh > 13.0:
+				state.linear_velocity += Vector3.UP * dvh * 0.12
+	var driven := (rider != 0 or driver_seed != 0) and car_hp > 0 and not wrecked
+	var upv := state.transform.basis.y
+	if _spin_t > 0.0 or not driven or upv.y < 0.6:
+		_spin_t -= step
+		if _pm.friction < 0.5:
+			_pm.friction = 0.75     # tyres skid: real friction while out of control
+		gravity_scale = 1.0
+		# on its side or roof: once it has stopped, it rights itself (game logic, not physics)
+		if upv.y < 0.6 and state.linear_velocity.length() < 1.5:
+			_flip_t += step
+			if _flip_t > 2.5:
+				var f := -state.transform.basis.z
+				var yaw := atan2(-f.x, -f.z)
+				var target := Basis(Vector3.UP, yaw)
+				var q := Quaternion(state.transform.basis.orthonormalized()).slerp(Quaternion(target), 0.06)
+				state.transform = Transform3D(Basis(q), state.transform.origin + Vector3.UP * 0.03)
+				state.angular_velocity = Vector3.ZERO
+		else:
+			_flip_t = 0.0
+		state.linear_velocity = state.linear_velocity.limit_length(45.0)
+		state.angular_velocity = state.angular_velocity.limit_length(9.0)
+		_v_out = state.linear_velocity
+		return true
+	if _pm.friction != 0.0:
+		_pm.friction = 0.0
+	return false
+
+func _crash(dvh: float, at_world: Vector3, other: Object, v_before: Vector3) -> void:
+	_crash_cd = 0.3
+	car_damage(int((dvh - CRASH_DV + 1.0) * 4.5), rider == 0 and driver_seed == 0)
+	if dvh > 7.0:
+		_spin_t = clampf((dvh - 7.0) * 0.09, 0.35, 1.8)
+	_crash_fx.rpc(to_local(at_world), dvh)
+	var oc := other as Prop
+	if oc != null and is_car(oc.kind):
+		oc.trigger_alarm()
+	var world := get_tree().get_first_node_in_group("world") as GameWorld
+	if world == null:
+		return
+	world.alarm(global_position, rider, 0.6 if dvh > 9.0 else 0.3, 16.0)
+	if dvh > EJECT_DV:
+		_eject_through_windscreen(v_before, world)
+
+## A really big hit: whoever is driving keeps going (through the glass).
+func _eject_through_windscreen(v: Vector3, world: GameWorld) -> void:
+	var fly := v * 0.85 + Vector3.UP * 4.0
+	var nose := global_position + (-global_basis.z) * (float(CARS[kind]["size"].z) * 0.5 + 0.6) + Vector3.UP * 0.6
+	if rider != 0:
+		var pl := world.get_node_or_null(str(rider)) as Player
+		var who := rider
+		rider = 0
+		_thr = 0.0
+		if pl != null:
+			remove_collision_exception_with(pl)
+			pl.stop_ride.rpc_id(who)
+			pl.thrown_out.rpc_id(who, nose, fly)
+		world.toast.rpc("%s went through the windscreen!" % str(Net.players.get(who, {}).get("name", "Someone")))
+	if driver_seed != 0:
+		var s0 := driver_seed
+		driver_seed = 0
+		ai_route = []
+		var npc := world.spawn_npc(nose, s0, 0, true)
+		if npc != null:
+			npc.knock_down(fly)
+			npc.hp -= 30
+
+## Server: take damage (crashes, bullets, bats, explosions). 0 = engine dies, it burns, then blows.
+func car_damage(amount: int, alarm := true) -> void:
+	if not multiplayer.is_server() or not is_car(kind) or wrecked or amount <= 0:
+		return
+	var was := car_hp
+	car_hp = maxi(0, car_hp - amount)
+	if alarm:
+		trigger_alarm()
+	if car_hp == 0 and was > 0:
+		_burn_t = 0.0
+		var world := get_tree().get_first_node_in_group("world") as GameWorld
+		if driver_seed != 0 and world != null:
+			world.npc_driver_ejected(self, driver_seed, 0)   # the driver bails out of the burning car
+			driver_seed = 0
+			ai_route = []
+		if rider != 0 and world != null:
+			world._toast_to(rider, "The engine's dead and it's ON FIRE. Get out! (F)")
+
+## Server: an explosion went off next to the car.
+func car_blast(impulse: Vector3, dmg: int) -> void:
+	if not multiplayer.is_server():
+		return
+	_spin_t = maxf(_spin_t, 2.0)
+	apply_central_impulse(impulse)
+	apply_torque_impulse(Vector3(randf_range(-1, 1), randf_range(-0.5, 0.5), randf_range(-1, 1)) * impulse.length() * 0.6)
+	car_damage(dmg)
+
+## Server: parked town cars scream when touched.
+func trigger_alarm() -> void:
+	if not multiplayer.is_server() or not has_alarm or wrecked:
+		return
+	if rider != 0 and not alarm_on:
+		return   # (the alarm went off when they broke in; crashing it later doesn't restart it)
+	if not alarm_on:
+		alarm_on = true
+		var world := get_tree().get_first_node_in_group("world") as GameWorld
+		if world != null:
+			world.alarm(global_position, 0, 0.2, 10.0)
+	_alarm_t = 15.0
+
+func _car_tick(delta: float) -> void:
+	if alarm_on:
+		_alarm_t -= delta
+		if _alarm_t <= 0.0:
+			alarm_on = false
+	if wrecked:
+		_wreck_t += delta
+		if _wreck_t > 90.0 and rider == 0:
+			queue_free()
+		return
+	if car_hp <= 0:
+		_burn_t += delta
+		if _burn_t > 8.0:
+			wrecked = true
+			alarm_on = false
+			_wreck_t = 0.0
+			var world := get_tree().get_first_node_in_group("world") as GameWorld
+			if world != null:
+				world.explode_at(global_position + Vector3.UP * 0.5, 6.5, 14.0)
+			apply_central_impulse(Vector3.UP * mass * 7.0)
+			apply_torque_impulse(Vector3(randf_range(-1, 1), 0.0, randf_range(-1, 1)) * mass * 3.0)
+			_spin_t = 3.0
+
+# ------------------------------------------------------------- crash effects (everyone)
+@rpc("authority", "call_local", "unreliable")
+func _crash_fx(local_at: Vector3, strength: float) -> void:
+	var world_at := to_global(local_at)
+	Sfx.play_at(get_parent(), "crash", world_at, clampf((strength - 6.0) * 1.2, -8.0, 6.0), 1.5)
+	if strength > 11.0:
+		Sfx.play_at(get_parent(), "glass", world_at, 0.0)
+		_shards(world_at, strength)
+	_sparks(world_at, strength)
+	if _dent_cd <= 0.0:
+		_dent(local_at, strength)
+		_dent_cd = 0.12
+
+## Crumple the bodywork round the impact point (moves the model's vertices in towards the middle).
+func _dent(local_at: Vector3, strength: float) -> void:
+	if _model == null:
+		return
+	var radius := clampf(0.45 + strength * 0.035, 0.5, 1.2)
+	var depth := clampf((strength - 3.5) * 0.014, 0.02, 0.28)
+	var inward := -local_at
+	inward.y *= 0.25
+	if inward.length() < 0.01:
+		return
+	inward = inward.normalized()
+	var me_inv := global_transform.affine_inverse()
+	for n in _model.find_children("*", "MeshInstance3D", true, false):
+		var mi := n as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		var to_car := me_inv * mi.global_transform
+		var inv := to_car.affine_inverse()
+		var p := inv * local_at
+		var d := (inv.basis * inward).normalized()
+		if not mi.mesh.get_aabb().grow(radius).has_point(p):
+			continue
+		var am := ArrayMesh.new()
+		var touched := false
+		for si in mi.mesh.get_surface_count():
+			var arr := mi.mesh.surface_get_arrays(si)
+			var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			for k in verts.size():
+				var dist := verts[k].distance_to(p)
+				if dist < radius:
+					var f := 1.0 - dist / radius
+					verts[k] += d * depth * f * f
+					touched = true
+			arr[Mesh.ARRAY_VERTEX] = verts
+			am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			am.surface_set_material(si, mi.mesh.surface_get_material(si))
+		if touched:
+			mi.mesh = am
+
+func _burst(at: Vector3, amount: int, col: Color, size: float, speed: float, life: float, grav: float, glow: bool) -> void:
+	var p := CPUParticles3D.new()
+	p.one_shot = true
+	p.explosiveness = 1.0
+	p.amount = amount
+	p.lifetime = life
+	p.local_coords = false
+	p.direction = Vector3.UP
+	p.spread = 80.0
+	p.initial_velocity_min = speed * 0.4
+	p.initial_velocity_max = speed
+	p.gravity = Vector3(0, -grav, 0)
+	p.scale_amount_min = 0.5
+	p.scale_amount_max = 1.0
+	var q := BoxMesh.new()
+	q.size = Vector3.ONE * size
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	if glow:
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.emission_enabled = true
+		m.emission = col
+		m.emission_energy_multiplier = 3.0
+	else:
+		m.metallic = 0.3
+		m.roughness = 0.1
+	q.material = m
+	p.mesh = q
+	get_parent().add_child(p)
+	p.global_position = at
+	p.emitting = true
+	get_tree().create_timer(life + 0.3).timeout.connect(p.queue_free)
+
+func _sparks(at: Vector3, strength: float) -> void:
+	_burst(at, int(clampf(strength * 2.0, 8.0, 40.0)), Color(1.0, 0.75, 0.3), 0.025, 2.0 + strength * 0.25, 0.45, 9.0, true)
+
+func _shards(at: Vector3, strength: float) -> void:
+	_burst(at + Vector3.UP * 0.5, int(clampf(strength * 2.5, 15.0, 50.0)), Color(0.75, 0.9, 1.0, 1.0), 0.04, 2.5 + strength * 0.15, 1.2, 12.0, false)
+
+## Smoke when it's hurt, flames when it's dying, a burnt shell after it blows; flashing lamps on alarm.
+func _damage_fx(delta: float) -> void:
+	_dent_cd -= delta
+	if _model == null:
+		return
+	var size: Vector3 = CARS[kind]["size"]
+	var engine := Vector3(0.0, size.y * 0.15, -size.z * 0.5 + 0.8)
+	var smoking := car_hp < 50 or wrecked
+	if smoking and _smoke == null:
+		_smoke = _puffs(false)
+		_smoke.position = engine
+	if _smoke != null:
+		_smoke.emitting = smoking
+		var dark := 1.0 - clampf(float(car_hp) / 50.0, 0.0, 1.0)
+		if wrecked:
+			dark = 1.0
+		_smoke.color = Color(0.55, 0.55, 0.55).lerp(Color(0.08, 0.08, 0.08), dark)
+	var burning := car_hp <= 15 and not wrecked or (wrecked and _wreck_t_client() < 25.0)
+	if burning and _fire == null:
+		_fire = _puffs(true)
+		_fire.position = engine + Vector3.UP * 0.1
+	if _fire != null:
+		_fire.emitting = burning
+	if wrecked and not _wreck_shown:
+		_wreck_shown = true
+		_char_model()
+	# alarm: whoop-whoop and the lamps flash
+	if alarm_on and not wrecked:
+		_alarm_snd_t -= delta
+		if _alarm_snd_t <= 0.0:
+			_alarm_snd_t = 0.9
+			Sfx.play_at(self, "alarm", global_position + Vector3.UP, 2.0, 1.4)
+		var on := Time.get_ticks_msec() % 600 < 300
+		if on != _lamp_on:
+			_flash_lamps(on)
+	elif _lamp_on:
+		_flash_lamps(false)
+
+var _wrecked_at := -1
+func _wreck_t_client() -> float:
+	if _wrecked_at < 0:
+		_wrecked_at = Time.get_ticks_msec()
+	return (Time.get_ticks_msec() - _wrecked_at) / 1000.0
+
+func _flash_lamps(on: bool) -> void:
+	_lamp_on = on
+	if _wreck_shown:
+		return
+	if _lamps.is_empty():
+		for n in _model.find_children("*", "MeshInstance3D", true, false):
+			var mi := n as MeshInstance3D
+			if mi.mesh == null:
+				continue
+			for i in mi.mesh.get_surface_count():
+				var m := mi.mesh.surface_get_material(i)
+				if m != null and (String(m.resource_name) == "headlamp" or String(m.resource_name) == "taillamp"):
+					_lamps.append([mi, i, String(m.resource_name) == "headlamp"])
+	for l in _lamps:
+		var mi2 := l[0] as MeshInstance3D
+		if not is_instance_valid(mi2):
+			continue
+		var head := bool(l[2])
+		mi2.set_surface_override_material(int(l[1]), Mats.glow(Color(1.0, 0.95, 0.8) if head else Color(1.0, 0.45, 0.05), 8.0) if on else null)
+
+func _char_model() -> void:
+	var char_m := Mats.solid(Color(0.09, 0.08, 0.08), 0.95)
+	var gone := StandardMaterial3D.new()
+	gone.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	gone.albedo_color = Color(0, 0, 0, 0.0)
+	for n in _model.find_children("*", "MeshInstance3D", true, false):
+		var mi := n as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		for i in mi.mesh.get_surface_count():
+			var m := mi.mesh.surface_get_material(i)
+			var nm := String(m.resource_name) if m != null else ""
+			mi.set_surface_override_material(i, gone if nm == "glass" else char_m)
+	if _driver_body != null:
+		_driver_body.visible = false
+
+func _puffs(fire: bool) -> CPUParticles3D:
+	var p := CPUParticles3D.new()
+	p.amount = 40 if fire else 30
+	p.lifetime = 0.7 if fire else 2.2
+	p.local_coords = false
+	p.direction = Vector3.UP
+	p.spread = 18.0 if fire else 25.0
+	p.initial_velocity_min = 1.0 if fire else 0.8
+	p.initial_velocity_max = 2.2 if fire else 1.8
+	p.gravity = Vector3(0, 2.5 if fire else 0.5, 0)
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = 0.35
+	p.scale_amount_min = 0.5 if fire else 0.6
+	p.scale_amount_max = 1.0 if fire else 1.4
+	var curve := Curve.new()
+	curve.add_point(Vector2(0.0, 0.4 if not fire else 1.0))
+	curve.add_point(Vector2(1.0, 1.6 if not fire else 0.2))
+	p.scale_amount_curve = curve
+	var grad := Gradient.new()
+	if fire:
+		grad.set_color(0, Color(1.0, 0.9, 0.4, 1.0))
+		grad.set_color(1, Color(0.6, 0.1, 0.02, 0.0))
+		grad.add_point(0.4, Color(1.0, 0.45, 0.08, 0.9))
+	else:
+		grad.set_color(0, Color(1, 1, 1, 0.55))
+		grad.set_color(1, Color(1, 1, 1, 0.0))
+	p.color_ramp = grad
+	var q := QuadMesh.new()
+	q.size = Vector2(0.7, 0.7)
+	var m := StandardMaterial3D.new()
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.vertex_color_use_as_albedo = true
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED if fire else BaseMaterial3D.SHADING_MODE_PER_PIXEL
+	if fire:
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	var tex := GradientTexture2D.new()
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.0, 0.5)
+	var g2 := Gradient.new()
+	g2.set_color(0, Color(1, 1, 1, 1))
+	g2.set_color(1, Color(1, 1, 1, 0))
+	tex.gradient = g2
+	m.albedo_texture = tex
+	q.material = m
+	p.mesh = q
+	add_child(p)
+	return p
 
 # ---------------------------------------------------------------- effects
 func play_fx(what: String) -> void:
