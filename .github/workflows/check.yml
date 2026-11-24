@@ -20,7 +20,7 @@ jobs:
           unzip -q "Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
           sudo mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
       - name: Import
-        run: timeout 600 godot --headless --editor --quit 2>&1 | tail -n 40 || true
+        run: timeout 600 godot --headless --editor --quit 2>&1 | grep -v "^\s*$" | tail -n 400 || true
       - name: Smoke test
         run: |
           set -o pipefail

@@ -1123,10 +1123,10 @@ func _ai_drive(delta: float) -> void:
 	var from := global_position + fwd * (half_len + 0.2) + Vector3.UP * 0.1
 	var q := PhysicsRayQueryParameters3D.create(from, from + fwd * 9.0, 1 | 4)
 	q.exclude = [get_rid()]
-	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	var ray_hit := get_world_3d().direct_space_state.intersect_ray(q)
 	var blocked := false
-	if not hit.is_empty():
-		var col := hit["collider"] as Node
+	if not ray_hit.is_empty():
+		var col := ray_hit["collider"] as Node
 		blocked = col is Player or col is Npc or col is Prop or (col != null and col.get_parent() is PlayerRagdoll)
 	if blocked:
 		_ai_block_t += delta

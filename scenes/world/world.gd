@@ -622,7 +622,7 @@ func open_menu(player: Player) -> void:
 func request_throw(kind: String, pos: Vector3, vel: Vector3, tint := "") -> void:
 	if not multiplayer.is_server() or not Prop.is_valid_kind(kind) or kind == "rocket":
 		return
-	if not pos.is_finite() or not vel.is_finite() or pos.length() > 110.0:
+	if not pos.is_finite() or not vel.is_finite() or pos.length() > 300.0:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	_spawn_prop(kind, pos, vel.limit_length(18.0), 1 if sender == 0 else sender, tint)

@@ -491,8 +491,8 @@ static func ride_offset(v: Prop, seat: bool) -> Vector3:
 		"coupe":
 			return v.global_basis * Vector3(0.0, -0.45, 0.15)
 	if Prop.is_car(v.kind):
-		var seat: Vector3 = Prop.CARS[v.kind]["seat"]
-		return v.global_basis * seat
+		var seat_at: Vector3 = Prop.CARS[v.kind]["seat"]
+		return v.global_basis * seat_at
 	return Vector3(0.0, 0.15, 0.0)
 
 func _update_rig(delta: float, mine: bool) -> void:
