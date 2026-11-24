@@ -163,8 +163,8 @@ var _v_out := Vector3.ZERO
 var _crash_cd := 0.0
 var _burn_t := 0.0
 var _wreck_t := 0.0
-var _smoke: CPUParticles3D
-var _fire: CPUParticles3D
+var _dmg_smoke: CPUParticles3D
+var _dmg_fire: CPUParticles3D
 var _alarm_snd_t := 0.0
 var _lamps: Array = []       # [MeshInstance3D, surface] of head and tail lamps (alarm flashing)
 var _lamp_on := false
@@ -1439,21 +1439,21 @@ func _damage_fx(delta: float) -> void:
 	var size: Vector3 = CARS[kind]["size"]
 	var engine := Vector3(0.0, size.y * 0.15, -size.z * 0.5 + 0.8)
 	var smoking := car_hp < 50 or wrecked
-	if smoking and _smoke == null:
-		_smoke = _puffs(false)
-		_smoke.position = engine
-	if _smoke != null:
-		_smoke.emitting = smoking
+	if smoking and _dmg_smoke == null:
+		_dmg_smoke = _puffs(false)
+		_dmg_smoke.position = engine
+	if _dmg_smoke != null:
+		_dmg_smoke.emitting = smoking
 		var dark := 1.0 - clampf(float(car_hp) / 50.0, 0.0, 1.0)
 		if wrecked:
 			dark = 1.0
-		_smoke.color = Color(0.55, 0.55, 0.55).lerp(Color(0.08, 0.08, 0.08), dark)
+		_dmg_smoke.color = Color(0.55, 0.55, 0.55).lerp(Color(0.08, 0.08, 0.08), dark)
 	var burning := car_hp <= 15 and not wrecked or (wrecked and _wreck_t_client() < 25.0)
-	if burning and _fire == null:
-		_fire = _puffs(true)
-		_fire.position = engine + Vector3.UP * 0.1
-	if _fire != null:
-		_fire.emitting = burning
+	if burning and _dmg_fire == null:
+		_dmg_fire = _puffs(true)
+		_dmg_fire.position = engine + Vector3.UP * 0.1
+	if _dmg_fire != null:
+		_dmg_fire.emitting = burning
 	if wrecked and not _wreck_shown:
 		_wreck_shown = true
 		_char_model()
