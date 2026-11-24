@@ -1343,8 +1343,11 @@ func _carry_contents() -> void:
 		return
 	var flat := Transform3D(Basis(Vector3.UP, global_rotation.y), global_position)
 	for c in cart_contents.duplicate():
+		if not is_instance_valid(c):   # (check before casting: casting a freed object is an error)
+			cart_contents.erase(c)
+			continue
 		var p := c as Prop
-		if p == null or not is_instance_valid(p) or p.exploded:
+		if p == null or p.exploded:
 			cart_contents.erase(c)
 			continue
 		p.global_transform = flat * p._cart_local

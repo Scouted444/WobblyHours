@@ -378,7 +378,7 @@ func _rag_step(delta: float) -> void:
 	global_position = t.global_position - Vector3(0.0, TORSO_Y, 0.0)
 	if dead:
 		# settled: freeze the body where it lies and stop sending it
-		if t.linear_velocity.length() < 0.2:
+		if t.linear_velocity.length() < 0.35:
 			_still_t += delta
 			if _still_t > 1.5 and not t.freeze:
 				for b in _ragdoll.bodies:

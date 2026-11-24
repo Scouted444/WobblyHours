@@ -148,6 +148,9 @@ func _go() -> void:
 			"chop":
 				var target := world.get_node_or_null(str(job.get("node", ""))) as Prop
 				if target != null:
+					target.ai_route = []        # pull over first (a moving car drives off before we reach it)
+					target.linear_velocity = Vector3.ZERO
+					await _wait(0.5)
 					_tp(target.global_position + Vector3(2.5, 0, 0))
 					await _wait(0.3)
 					target.ride()
