@@ -39,6 +39,8 @@ func _go() -> void:
 		return
 	_log("town: %s, addresses %d, paths %d" % [world.town != null, world.town.addresses.size() if world.town else 0, world.town.walk_paths.size() if world.town else 0])
 	await _wait(2.0)
+	_check_layout()
+	_report_town()
 
 	# --- spawn one of everything next to me
 	_log("spawning")
@@ -148,6 +150,7 @@ func _go() -> void:
 					await _wait(0.3)
 					target.ride()
 					await _wait(0.6)
+					_log("chop: riding '%s', car rider %d" % [me.ride_name, target.rider])
 					target.global_position = town.chop_shop + Vector3(0, 1.0, 0)
 					await _wait(1.2)
 			"trouble":
@@ -184,6 +187,7 @@ func _go() -> void:
 	# --- let the town run for a while, then tidy up
 	_tp(Vector3(150, 0.5, 60))
 	await _wait(8.0)
+	_report_town()
 	world.host_clear("all")
 	await _wait(2.0)
 	_log("people %d, props %d" % [get_tree().get_nodes_in_group("npcs").size(), get_tree().get_nodes_in_group("props").size()])
@@ -192,5 +196,79 @@ func _go() -> void:
 
 func _tp(p: Vector3) -> void:
 	if is_instance_valid(me):
+		if me.ragdolled:
+			me.set_ragdoll(false)
 		me.global_position = p
 		me.velocity = Vector3.ZERO
+
+## Layout check: walk the pavement paths and the traffic lanes and report anything solid in the way.
+func _check_layout() -> void:
+	var space := world.get_world_3d().direct_space_state
+	var town := world.town
+	var q := PhysicsShapeQueryParameters3D.new()
+	var sph := SphereShape3D.new()
+	sph.radius = 0.35
+	q.shape = sph
+	q.collision_mask = 1
+	var blocked := 0
+	var total := 0
+	for wp in town.walk_paths:
+		var pts: Array = wp["pts"]
+		var n := pts.size() if bool(wp["loop"]) else pts.size() - 1
+		for i in n:
+			var a: Vector3 = pts[i]
+			var b: Vector3 = pts[(i + 1) % pts.size()]
+			var steps := int(a.distance_to(b))
+			for k in steps:
+				var p := a.lerp(b, float(k) / maxf(1.0, float(steps))) + Vector3.UP * 0.9
+				q.transform = Transform3D(Basis(), p)
+				total += 1
+				var hits := space.intersect_shape(q, 4)
+				for h in hits:
+					var col := h["collider"] as Node
+					if col is StaticBody3D:
+						blocked += 1
+						if blocked <= 12:
+							_log("pavement blocked at %s by %s" % [p.round(), col.name])
+						break
+	_log("pavement samples %d, blocked %d" % [total, blocked])
+	var lb := 0
+	var lt := 0
+	sph.radius = 0.9
+	for a_i in town.road_links:
+		for b_i in town.road_links[a_i]:
+			var a2: Vector3 = town.road_nodes[int(a_i)]
+			var b2: Vector3 = town.road_nodes[int(b_i)]
+			var d := (b2 - a2).normalized()
+			var right := Vector3(-d.z, 0.0, d.x)
+			var steps2 := int(a2.distance_to(b2) / 2.0)
+			for k2 in steps2:
+				var p2 := a2.lerp(b2, float(k2) / maxf(1.0, float(steps2))) + right * Town.LANE + Vector3.UP * 1.2
+				q.transform = Transform3D(Basis(), p2)
+				lt += 1
+				for h2 in space.intersect_shape(q, 4):
+					if (h2["collider"] as Node) is StaticBody3D:
+						lb += 1
+						if lb <= 12:
+							_log("lane blocked at %s by %s" % [p2.round(), (h2["collider"] as Node).name])
+						break
+	_log("lane samples %d, blocked %d" % [lt, lb])
+
+func _report_town() -> void:
+	var walking := 0
+	var res := 0
+	for n in get_tree().get_nodes_in_group("residents"):
+		var npc := n as Npc
+		if npc != null and not npc.dead:
+			res += 1
+			if npc.move_speed > 0.5:
+				walking += 1
+	var moving := 0
+	var ai := 0
+	for n2 in get_tree().get_nodes_in_group("props"):
+		var p := n2 as Prop
+		if p != null and p.driver_seed != 0:
+			ai += 1
+			if p.linear_velocity.length() > 2.0:
+				moving += 1
+	_log("townspeople %d (%d walking), traffic %d (%d moving)" % [res, walking, ai, moving])

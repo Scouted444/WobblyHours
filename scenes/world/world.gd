@@ -1265,7 +1265,7 @@ func _populate_town(start := false) -> void:
 				spawn_car(k, sp["pos"], float(sp["yaw"]))
 				n += 1
 	for i in 6:
-		_town_tick(10.0)
+		_town_tick(10.0)   # a few cars and a dozen people straight away, the rest arrive over the next minute
 
 ## Keep the town alive: top up people and traffic (out of sight when possible), tow abandoned cars,
 ## and make people react to guns pointed at them.
@@ -1284,7 +1284,7 @@ func _town_tick(delta: float) -> void:
 	for n in get_tree().get_nodes_in_group("residents"):
 		if not (n as Npc).dead:
 			people += 1
-	if people < TOWN_PEOPLE:
+	for extra in clampi(TOWN_PEOPLE - people, 0, 2):
 		for tries in 6:
 			var spot := town.random_walk_spot()
 			if _far_from_players(spot["pos"], 30.0) or tries == 5:
