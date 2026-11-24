@@ -191,7 +191,8 @@ func _yard() -> void:
 	var side_len := STREET_END + 44.2
 	var side_mid := (STREET_END - 44.2) * 0.5
 	_b(self, Vector3(-44.2, 0.88, side_mid), Vector3(0.18, 1.68, side_len), fence, true, Vector3.ZERO, 0.12)
-	_b(self, Vector3(44.2, 0.88, side_mid), Vector3(0.18, 1.68, side_len), fence, true, Vector3.ZERO, 0.12)
+	# east side: open where Main St carries on into town (the town builds the rest, south of the road)
+	_b(self, Vector3(44.2, 0.88, (-44.2 + 45.4) * 0.5), Vector3(0.18, 1.68, 45.4 + 44.2), fence, true, Vector3.ZERO, 0.12)
 	_b(self, Vector3(0, 0.88, STREET_END), Vector3(88.8, 1.68, 0.18), fence, true, Vector3.ZERO, 0.12)
 	for p in [Vector3(-14, 0, -10), Vector3(16, 0, -14), Vector3(15, 0, 16), Vector3(-18, 0, 9), Vector3(22, 0, -3), Vector3(-24, 0, -16), Vector3(-16, 0, 22), Vector3(26, 0, 20)]:
 		_tree(p, randf_range(0.95, 1.45), int(absf(p.x + p.z)) % 3 == 0)

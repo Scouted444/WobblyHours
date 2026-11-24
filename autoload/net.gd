@@ -16,7 +16,8 @@ const MAX_PLAYERS := 16
 var my_name := "Player"
 var my_look := {}  # this player's customization (see scenes/player/look.gd)
 var players := {}  # peer_id -> { "name": String }
-var map := {}      # {"id": workshop map id or ""} chosen by the host
+var map := {}      # {"id": workshop map id or "", "mode": "sandbox" / "campaign"} chosen by the host
+var mode := "sandbox"   # what the host picked on the main menu (sent to everyone in `map`)
 
 func _ready() -> void:
 	my_look = Look.load_saved()
@@ -32,7 +33,7 @@ func host() -> bool:
 		return false
 	multiplayer.multiplayer_peer = peer
 	players = {1: {"name": my_name, "look": Look.sanitize(my_look)}}
-	map = {"id": Content.selected_map}
+	map = {"id": Content.selected_map, "mode": mode}
 	players_changed.emit()
 	return true
 
@@ -70,8 +71,12 @@ func _register(pname: String, look: Dictionary = {}) -> void:
 @rpc("authority", "call_remote", "reliable")
 func _set_map(m: Dictionary) -> void:
 	var id := str(m.get("id", ""))
-	map = {"id": id if Look.is_model_id(id) else ""}
+	map = {"id": id if Look.is_model_id(id) else "", "mode": "campaign" if str(m.get("mode", "")) == "campaign" else "sandbox"}
 	map_changed.emit()
+
+## Campaign mode: no spawning, no free money; you earn cash doing jobs.
+func is_campaign() -> bool:
+	return str(map.get("mode", "sandbox")) == "campaign"
 
 ## Which peer has this model file (a player's character, or the host's map)?
 func owner_of_model(id: String) -> int:

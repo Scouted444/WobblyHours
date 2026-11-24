@@ -1482,6 +1482,13 @@ def coupe():
     return m
 
 
+# ======================================================================= cars
+import cars  # noqa: E402
+for _cn in cars.CAR_SPECS:
+    reg(_cn, cars.car(new, _cn))
+reg("package", cars.package(new))
+
+
 # =================================================================== main
 def main():
     os.makedirs(OUT, exist_ok=True)

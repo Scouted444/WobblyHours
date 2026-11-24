@@ -12,6 +12,8 @@ const MAX_NPCS := 24
 var player_spawner: MultiplayerSpawner
 var prop_spawner: MultiplayerSpawner
 var house: HouseFull
+var town: Town
+var missions: Missions
 var _prop_counter := 0
 var map_ready := false          # false until the map (house or Workshop .glb) is built; players wait
 var spawn_point := Vector3(-4.6, 0.2, 1.7)
@@ -37,6 +39,9 @@ func _ready() -> void:
 	add_child(prop_spawner)
 
 	_build_hud()
+	missions = Missions.new()
+	missions.name = "Missions"
+	add_child(missions)
 
 	Content.blob_ready.connect(func(_id): _try_load_map())
 	if multiplayer.is_server():
@@ -74,6 +79,10 @@ func _build_house() -> void:
 	house.trampoline_hit.connect(_on_trampoline)
 	house.board_hit.connect(_on_board)
 	spawn_point = Vector3(-4.6, 0.2, 1.7)
+	town = Town.new()
+	town.name = "Town"
+	add_child(town)
+	town.build_town()
 
 ## A Workshop .glb map: every mesh becomes solid (trimesh), spawn at a node named "spawn*" or on the ground.
 func _build_custom_map(id: String) -> void:
@@ -130,16 +139,21 @@ func _spawn_prop_node(data: Variant) -> Node:
 		var n := Npc.new()
 		n.name = "Npc_%d" % int(data["id"])
 		n.position = data["pos"]
+		n.rotation.y = float(data.get("yaw", 0.0))
 		n.look_seed = int(data.get("seed", 0))
 		n.owner_id = int(data.get("by", 0))
+		n.resident = bool(data.get("res", false))
+		n.troublemaker = bool(data.get("trouble", false))
 		return n
 	var p := Prop.new()
 	p.kind = data["kind"]
 	p.name = "Prop_%d" % int(data["id"])
 	p.position = data["pos"]
+	p.rotation.y = float(data.get("yaw", 0.0))
 	p.init_vel = data["vel"]
 	p.shooter = int(data.get("by", 0))
 	p.tint = str(data.get("tint", ""))
+	p.driver_seed = int(data.get("drv", 0))
 	return p
 
 func _on_player_joined(id: int) -> void:
@@ -150,8 +164,10 @@ func _on_player_joined(id: int) -> void:
 		pos = spawn_point + Vector3(randf_range(-1.5, 1.5), 0.5, randf_range(-1.5, 1.5))
 	player_spawner.spawn({"id": id, "pos": pos})
 	if not money.has(id):
-		money[id] = START_MONEY
+		money[id] = START_MONEY if not Net.is_campaign() else CAMPAIGN_START_MONEY
 	_send_money(id)
+	if Net.is_campaign():
+		get_tree().create_timer(3.0).timeout.connect(_toast_to.bind(id, "CAMPAIGN: no spawning, no free money. Head east along Main St to the JOB BOARD in town and earn your cash!"))
 
 func _on_player_left(id: int) -> void:
 	money.erase(id)
@@ -159,28 +175,57 @@ func _on_player_left(id: int) -> void:
 	if node != null:
 		node.queue_free()
 
-func _spawn_prop(kind: String, pos: Vector3, vel := Vector3.ZERO, by := 0, tint := "") -> void:
-	var props := get_tree().get_nodes_in_group("props")
-	if kind != "npc" and props.size() >= MAX_PROPS:
-		props[0].queue_free()  # the oldest toy goes away
-	_prop_counter += 1
+func _spawn_prop(kind: String, pos: Vector3, vel := Vector3.ZERO, by := 0, tint := "") -> Node:
 	if kind == "npc":
-		var npcs := get_tree().get_nodes_in_group("npcs")
-		if npcs.size() >= MAX_NPCS:
-			npcs[0].queue_free()
-		prop_spawner.spawn({"kind": kind, "pos": pos, "id": _prop_counter, "vel": vel, "by": by, "seed": randi() % 100000})
-		return
-	prop_spawner.spawn({"kind": kind, "pos": pos, "id": _prop_counter, "vel": vel, "by": by, "tint": tint})
+		return spawn_npc(pos, randi() % 100000, by)
+	var props := get_tree().get_nodes_in_group("props")
+	if props.size() >= MAX_PROPS:
+		for old in props:   # the oldest toy goes away (never a car)
+			if not Prop.is_car((old as Prop).kind):
+				old.queue_free()
+				break
+	_prop_counter += 1
+	if Prop.is_car(kind) and tint == "":
+		tint = Prop.CAR_COLORS[randi() % Prop.CAR_COLORS.size()]
+	return prop_spawner.spawn({"kind": kind, "pos": pos, "id": _prop_counter, "vel": vel, "by": by, "tint": tint})
+
+## Server: a person with a given look. Spawned ones count towards MAX_NPCS; townspeople don't.
+func spawn_npc(pos: Vector3, look_seed: int, by := 0, res := false, trouble := false, yaw := 0.0) -> Npc:
+	if not res and not trouble:
+		var mine: Array = []
+		for n in get_tree().get_nodes_in_group("npcs"):
+			if not (n as Npc).resident and not (n as Npc).troublemaker:
+				mine.append(n)
+		if mine.size() >= MAX_NPCS:
+			mine[0].queue_free()
+	_prop_counter += 1
+	return prop_spawner.spawn({"kind": "npc", "pos": pos, "id": _prop_counter, "vel": Vector3.ZERO, "by": by,
+		"seed": look_seed, "res": res, "trouble": trouble, "yaw": yaw}) as Npc
+
+## Server: a car, optionally with a townsperson driving it along `route` ([from, to] road nodes).
+func spawn_car(kind: String, pos: Vector3, yaw: float, driver := 0, route: Array = [], tint := "") -> Prop:
+	_prop_counter += 1
+	if tint == "":
+		tint = Prop.CAR_COLORS[randi() % Prop.CAR_COLORS.size()]
+	var h: float = float(Prop.CARS[kind]["size"].y) * 0.5 + 0.08
+	var p := prop_spawner.spawn({"kind": kind, "pos": Vector3(pos.x, h, pos.z), "id": _prop_counter, "vel": Vector3.ZERO,
+		"by": 0, "tint": tint, "yaw": yaw, "drv": driver}) as Prop
+	if p != null:
+		p.ai_route = route
+	return p
 
 @rpc("any_peer", "call_local", "reliable")
 func request_spawn(kind: String, pos: Vector3) -> void:
 	if not multiplayer.is_server() or (kind != "npc" and (not Prop.is_valid_kind(kind) or Prop.is_restricted(kind))):
 		return
-	if not pos.is_finite() or pos.length() > 110.0:
+	if not pos.is_finite() or pos.length() > 300.0:
 		return
 	var id := multiplayer.get_remote_sender_id()
 	if id == 0:
 		id = 1
+	if Net.is_campaign():
+		_toast_to(id, "Campaign: no spawning. Earn cash with jobs (job board at WOBBLY JOBS, Main St) and buy stuff.")
+		return
 	if id != 1 and not guests_can_spawn:
 		_toast_to(id, "The host has turned spawning off")
 		return
@@ -199,6 +244,13 @@ func request_spawn(kind: String, pos: Vector3) -> void:
 		if mine >= SPAWN_LIMIT:
 			_toast_to(id, "Spawn limit reached (%d things each). The host can clear stuff in the pause menu." % SPAWN_LIMIT)
 			return
+	if Prop.is_car(kind):
+		var pl := get_node_or_null(str(id)) as Node3D
+		var yaw := pl.global_rotation.y if pl != null else 0.0
+		var c := spawn_car(kind, pos + Basis(Vector3.UP, yaw) * Vector3(0, 0, -2.0), yaw)
+		if c != null:
+			c.shooter = id
+		return
 	_spawn_prop(kind, pos, Vector3.ZERO, id)
 
 # ---------------------------------------------------------------- spawn rules + host tools
@@ -218,6 +270,10 @@ func host_clear(what: String) -> void:
 		"people":
 			for n in get_tree().get_nodes_in_group("npcs"):
 				n.queue_free()
+		"traffic":
+			for n in get_tree().get_nodes_in_group("props"):
+				if Prop.is_car((n as Prop).kind) and (n as Prop).rider == 0:
+					n.queue_free()
 		"gore":
 			for n in get_tree().get_nodes_in_group("props"):
 				if Prop.is_limb((n as Prop).kind):
@@ -230,7 +286,7 @@ func host_clear(what: String) -> void:
 				n.queue_free()
 			clear_blood.rpc()
 			get_tree().create_timer(0.3).timeout.connect(_spawn_starting_props)
-	toast.rpc("The host cleared %s" % {"props": "all the props", "people": "all the people", "gore": "the blood and body parts", "all": "everything (fresh start)"}.get(what, what))
+	toast.rpc("The host cleared %s" % {"props": "all the props", "people": "all the people", "gore": "the blood and body parts", "traffic": "the cars", "all": "everything (fresh start)"}.get(what, what))
 	toast("Cleared")
 
 @rpc("authority", "call_local", "reliable")
@@ -265,6 +321,7 @@ func _spawn_starting_props() -> void:
 		_spawn_prop("cart", Vector3(-6.0 + i * 0.75, 0.55, 60.2))
 	for i in 3:     # explosives live far away in the back yard
 		_spawn_prop("barrel", Vector3(-10.0 - i * 0.9, 0.6, -10.0))
+	_populate_town(true)
 
 ## The RPG is on the roof: you need the trampoline (or a very good jump) to get up there.
 ## It comes back a while after somebody takes it.
@@ -324,6 +381,7 @@ func explode_at(pos: Vector3, radius: float, power: float) -> void:
 	if not multiplayer.is_server():
 		return
 	boom_fx.rpc(pos, radius)
+	alarm(pos, 0, 1.0, radius * 6.0)
 	for n in get_tree().get_nodes_in_group("props"):
 		var prop := n as Prop
 		if prop == null or prop.exploded:
@@ -539,6 +597,9 @@ var _menu_layer: CanvasLayer
 func open_menu(player: Player) -> void:
 	if _menu_layer != null:
 		return
+	if Net.is_campaign():
+		toast("Campaign: no spawn menu. Earn cash with jobs at the WOBBLY JOBS board in town, then shop!")
+		return
 	_menu_layer = CanvasLayer.new()
 	_menu_layer.layer = 15
 	add_child(_menu_layer)
@@ -624,6 +685,7 @@ func _fire_rpg(pl: Player, origin: Vector3, dir: Vector3, sender: int) -> void:
 
 func _shoot(pl: Player, origin: Vector3, dir: Vector3) -> void:
 	pl.item_fx.rpc("shoot")
+	alarm(origin, pl.get_multiplayer_authority(), 0.9, 30.0)
 	var far := origin + dir * 60.0
 	var q := PhysicsRayQueryParameters3D.create(origin, far, 1 | 4)
 	q.exclude = [pl.get_rid()]
@@ -733,6 +795,8 @@ func chat_say(text: String) -> void:
 	if text.is_empty():
 		return
 	var nm := str(Net.players.get(id, {}).get("name", "?"))
+	if multiplayer.is_server():
+		_npcs_hear(text, id)
 	chat_log.append([nm, text, Time.get_ticks_msec()])
 	if chat_log.size() > 50:
 		chat_log.pop_front()
@@ -797,7 +861,12 @@ func controls_text() -> String:
 	text += "F: computer / shop counter / drive the toy car / push or sit in a cart / lift a knocked-out player / ride a rocket\n"
 	text += "Hold Q: weapon wheel (pick up more things and switch between them)   Melee: hold LMB to wind up, let go to swing\n"
 	text += "K character   V camera   U I'm stuck   T chat   Esc pause menu\n"
-	text += "You earn $%d every %d s: spend it at the CORNER SHOP across the street (out the front gate).\n" % [INCOME, int(INCOME_EVERY)]
+	text += "TOWN: east along Main St. F talks to people, T chat (they answer: hi, dance, follow me, sorry...). F at a car gets in (or hijacks it). In a car: LMB horn, police RMB lights.\n"
+	text += "JOBS: the job board outside WOBBLY JOBS in town: deliveries, pizza runs, cars for the Chop Shop, trouble-makers.\n"
+	if Net.is_campaign():
+		text += "CAMPAIGN: no spawning and no free money - do jobs to earn cash, spend it at the CORNER SHOP.\n"
+	else:
+		text += "You earn $%d every %d s: spend it at the CORNER SHOP across the street (out the front gate).\n" % [INCOME, int(INCOME_EVERY)]
 	text += "Rumour: there is an RPG on the roof..."
 	if multiplayer.is_server():
 		var ips: Array[String] = []
@@ -809,6 +878,7 @@ func controls_text() -> String:
 
 # ------------------------------------------------------------------ money + shop
 const START_MONEY := 100
+const CAMPAIGN_START_MONEY := 40
 const INCOME := 10
 const INCOME_EVERY := 30.0
 ## What things cost at the Corner Shop (the RPG is not for sale: it lives on the roof).
@@ -816,11 +886,13 @@ const PRICES := {
 	"soda": 4, "beer": 6, "burger": 12, "pizza": 10, "cig": 8,
 	"ball": 5, "duck": 5, "pin": 3, "melon": 8, "crate": 10, "chair": 15, "barrel": 20, "bomb": 60, "coupe": 150, "cart": 25,
 	"console": 70, "knife": 40, "bat": 35, "pistol": 90, "gloves": 30,
+	"sedan": 400, "truck": 550, "sports": 1200,
 }
 const SHOP_SECTIONS := {
 	"Snacks & drinks": ["soda", "beer", "burger", "pizza", "cig"],
 	"Toys": ["ball", "duck", "pin", "melon", "crate", "chair", "barrel", "bomb", "coupe", "cart"],
 	"Gear": ["console", "knife", "bat", "pistol", "gloves"],
+	"Cars (parked on the street)": ["sedan", "truck", "sports"],
 }
 signal money_changed(amount: int)
 var money := {}          # server only: peer id -> dollars
@@ -831,6 +903,9 @@ var _money_label: Label
 func _process(delta: float) -> void:
 	if not multiplayer.is_server():
 		return
+	_town_tick(delta)
+	if Net.is_campaign():
+		return   # no free money in the campaign: work for it
 	_income_t += delta
 	if _income_t >= INCOME_EVERY:
 		_income_t = 0.0
@@ -845,6 +920,13 @@ func _send_money(id: int) -> void:
 	else:
 		_set_money.rpc_id(id, amount)
 
+## Server: pay (or charge) a player.
+func add_money(id: int, amount: int) -> void:
+	if not multiplayer.is_server():
+		return
+	money[id] = maxi(0, int(money.get(id, 0)) + amount)
+	_send_money(id)
+
 @rpc("authority", "call_remote", "reliable")
 func _set_money(amount: int) -> void:
 	if amount < my_money:
@@ -854,9 +936,18 @@ func _set_money(amount: int) -> void:
 		_money_label.text = "$%d" % amount
 	money_changed.emit(amount)
 
+## Standing at the town's job board?
+func near_job_board(from: Vector3) -> bool:
+	return town != null and not custom_map and from.distance_to(town.job_board) < 2.8
+
 ## The shop counter, if `from` is close enough to buy (only on the default map).
 func near_shop(from: Vector3) -> bool:
 	return house != null and not custom_map and from.distance_to(house.shop_counter) < 2.6
+
+func open_jobs(player: Player) -> void:
+	var ui := JobBoard.new()
+	ui.setup(self)
+	_open_overlay(player, ui, 16)
 
 func open_shop(player: Player) -> void:
 	var ui := ShopMenu.new()
@@ -881,6 +972,12 @@ func buy(kind: String) -> void:
 		return
 	money[id] = int(money[id]) - price
 	_send_money(id)
+	if Prop.is_car(kind):
+		var c := spawn_car(kind, Vector3(randf_range(-20.0, 20.0), 0.0, 55.1), -PI * 0.5)   # kerbside, facing town
+		if c != null:
+			c.shooter = id
+		_toast_to(id, "Your %s is parked on the street outside. Enjoy!" % Prop.CARS[kind]["label"])
+		return
 	var drop := house.shop_pickup + Vector3(randf_range(-0.4, 0.4), 0.35, randf_range(-0.15, 0.15))
 	if kind in ["coupe", "barrel", "crate", "chair", "cart"]:
 		drop = Vector3(randf_range(-2.0, 2.0), 0.8, 60.0)   # big things are left outside the door
@@ -1145,3 +1242,181 @@ func take_from_shelf(origin: Vector3, dir: Vector3) -> void:
 	money[id] = int(money[id]) - price
 	_send_money(id)
 	pl.equip.rpc_id(id, kind, "")
+
+# ------------------------------------------------------------------ the town (server)
+const TOWN_PEOPLE := 22        # townspeople walking about
+const TOWN_TRAFFIC := 7        # cars driving round with a townsperson at the wheel
+const TOWN_CAR_CAP := 24       # cars in the world at most (abandoned ones far away get towed)
+var _town_t := 0.0
+var _aim_t := 0.0
+
+## Fill the town with people, traffic and parked cars. `start` = also park cars in the lot.
+func _populate_town(start := false) -> void:
+	if not multiplayer.is_server() or town == null or custom_map:
+		return
+	if start:
+		var kinds := ["sedan", "sedan", "sports", "truck", "taxi", "sedan", "truck", "sedan"]
+		var spots := town.parking.duplicate()
+		spots.shuffle()
+		var n := 0
+		for sp in spots:
+			var k: String = str(sp.get("kind", kinds[n % kinds.size()]))
+			if sp.has("kind") or n < 7:
+				spawn_car(k, sp["pos"], float(sp["yaw"]))
+				n += 1
+	for i in 6:
+		_town_tick(10.0)
+
+## Keep the town alive: top up people and traffic (out of sight when possible), tow abandoned cars,
+## and make people react to guns pointed at them.
+func _town_tick(delta: float) -> void:
+	if town == null or custom_map:
+		return
+	_aim_t -= delta
+	if _aim_t <= 0.0:
+		_aim_t = 0.35
+		_check_aims()
+	_town_t -= delta
+	if _town_t > 0.0:
+		return
+	_town_t = 4.0
+	var people := 0
+	for n in get_tree().get_nodes_in_group("residents"):
+		if not (n as Npc).dead:
+			people += 1
+	if people < TOWN_PEOPLE:
+		for tries in 6:
+			var spot := town.random_walk_spot()
+			if _far_from_players(spot["pos"], 30.0) or tries == 5:
+				var npc := spawn_npc(spot["pos"] + Vector3.UP * 0.1, randi() % 100000, 0, true)
+				if npc != null:
+					var wp: Dictionary = town.walk_paths[int(spot["path"])]
+					npc.path = wp["pts"]
+					npc.path_loop = bool(wp["loop"])
+					npc._wp = int(spot["wp"])
+				break
+	var cars: Array = []
+	var driving := 0
+	for n2 in get_tree().get_nodes_in_group("props"):
+		var c := n2 as Prop
+		if c != null and Prop.is_car(c.kind) and not c.exploded:
+			cars.append(c)
+			if c.driver_seed != 0:
+				driving += 1
+	if driving < TOWN_TRAFFIC and cars.size() < TOWN_CAR_CAP:
+		for tries2 in 6:
+			var ls := town.random_lane_spot()
+			if _far_from_players(ls["pos"], 35.0) and _lane_clear(ls["pos"]):
+				var kinds2 := ["sedan", "sedan", "taxi", "sedan", "truck", "sports", "taxi", "police"]
+				spawn_car(kinds2[randi() % kinds2.size()], ls["pos"], float(ls["yaw"]), 1 + randi() % 100000, ls["route"])
+				break
+	elif cars.size() >= TOWN_CAR_CAP:
+		# tow the abandoned car furthest from everybody
+		var worst: Prop = null
+		var worst_d := 60.0
+		for c2 in cars:
+			var car := c2 as Prop
+			if car.rider != 0 or car.driver_seed != 0 or car.passenger != 0:
+				continue
+			var d := _nearest_player_dist(car.global_position)
+			if d > worst_d:
+				worst_d = d
+				worst = car
+		if worst != null:
+			worst.queue_free()
+
+func _far_from_players(p: Vector3, dist: float) -> bool:
+	return _nearest_player_dist(p) > dist
+
+func _nearest_player_dist(p: Vector3) -> float:
+	var best := 1e9
+	for n in get_tree().get_nodes_in_group("players"):
+		best = minf(best, (n as Node3D).global_position.distance_to(p))
+	return best
+
+func _lane_clear(p: Vector3) -> bool:
+	for n in get_tree().get_nodes_in_group("props"):
+		if (n as Node3D).global_position.distance_to(p) < 7.0:
+			return false
+	return true
+
+## Server: something violent happened at `at` (by = the player responsible, 0 = nobody):
+## people within `radius` scream and run, or (the brave ones) come for whoever did it.
+func alarm(at: Vector3, by: int, severity: float, radius: float, except: Node = null) -> void:
+	if not multiplayer.is_server():
+		return
+	for n in get_tree().get_nodes_in_group("npcs"):
+		var npc := n as Npc
+		if npc == null or npc == except or npc.dead:
+			continue
+		if npc.global_position.distance_to(at) < radius:
+			npc.witness(at, by, severity)
+
+## Server: anybody pointing a gun at a person makes their hands go up.
+func _check_aims() -> void:
+	var cos_lim := cos(deg_to_rad(9.0))
+	for n in get_tree().get_nodes_in_group("players"):
+		var pl := n as Player
+		if pl == null or pl.ragdolled or not (pl.equipped == "pistol" or pl.equipped == "rpg"):
+			continue
+		var eye := pl.global_position + Vector3.UP * 1.55
+		var dir := (Basis(Vector3.UP, pl.yaw) * Basis(Vector3.RIGHT, pl.pitch)) * Vector3.FORWARD
+		for m in get_tree().get_nodes_in_group("npcs"):
+			var npc := m as Npc
+			if npc == null or npc.dead:
+				continue
+			var to := npc.global_position + Vector3.UP * 1.2 - eye
+			var d := to.length()
+			if d < 22.0 and d > 0.5 and to.normalized().dot(dir) > cos_lim:
+				npc.aimed_at(pl.get_multiplayer_authority())
+
+## Server: the nearest people to a chatting player hear what they said.
+func _npcs_hear(text: String, id: int) -> void:
+	var pl := get_node_or_null(str(id)) as Node3D
+	if pl == null:
+		return
+	var near: Array = []
+	for n in get_tree().get_nodes_in_group("npcs"):
+		var npc := n as Npc
+		if npc == null or npc.dead:
+			continue
+		var d := npc.global_position.distance_to(pl.global_position)
+		if d < 9.0:
+			near.append([d, npc])
+	near.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	for i in mini(2, near.size()):
+		var who: Npc = near[i][1]
+		get_tree().create_timer(0.4 + i * 0.7).timeout.connect(func():
+			if is_instance_valid(who):
+				who.hear(text, id))
+
+## Server: the townsperson driving `car` got dragged out by player `by`.
+func npc_driver_ejected(car: Prop, look_seed: int, by: int) -> void:
+	var size: Vector3 = Prop.CARS[car.kind]["size"]
+	var at := car.global_position + car.global_basis * Vector3(-size.x * 0.5 - 0.9, 0.0, 0.3)
+	at.y = car.global_position.y - size.y * 0.5 + 0.1
+	var npc := spawn_npc(at, look_seed, 0, true, false, car.global_rotation.y)
+	if npc == null:
+		return
+	npc.grudge[by] = 1.0
+	if town != null and not town.walk_paths.is_empty():
+		var spot := town.random_walk_spot()
+		var wp: Dictionary = town.walk_paths[int(spot["path"])]
+		npc.path = wp["pts"]
+		npc.path_loop = bool(wp["loop"])
+	var rng := RandomNumberGenerator.new()
+	rng.seed = look_seed
+	rng.randi()
+	var will_fight := rng.randf() < 0.22
+	var pl := get_node_or_null(str(by)) as Node3D
+	get_tree().create_timer(0.3).timeout.connect(func():
+		if not is_instance_valid(npc):
+			return
+		if will_fight:
+			npc.hostile = by
+			npc._say_line(["HEY! That's MY car!", "Get out of my car, you maniac!", "Oh no you DON'T!"][randi() % 3], true)
+		else:
+			npc._flee_t = 6.0
+			npc._flee_from = pl.global_position if is_instance_valid(pl) else car.global_position
+			npc._say_line(["MY CAR!", "Take it! Take it!", "I just had it washed!", "Help! Carjacker!"][randi() % 4], true))
+	alarm(car.global_position, by, 0.7, 18.0, npc)

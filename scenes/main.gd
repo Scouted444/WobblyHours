@@ -10,6 +10,9 @@ const TIPS := [
 	"Tip: press R to flop on purpose.",
 	"Tip: the trampoline in the yard is load-bearing fun.",
 	"Tip: drag a .glb onto the Workshop to become a traffic cone.",
+	"Tip: there's a whole town east along Main Street. Say hi to people (T to chat).",
+	"Tip: F next to a car with someone in it... borrows it. Permanently.",
+	"Tip: Campaign mode: no spawning, you earn cash with jobs from the job board.",
 ]
 
 var layer: CanvasLayer
@@ -27,6 +30,8 @@ func _ready() -> void:
 	Settings.changed.connect(_update_music_volume)
 	_build_menu()
 	_start_music()
+	if "--smoke" in OS.get_cmdline_user_args():
+		SmokeTest.run(self)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if world == null or not event.is_action_pressed("pause"):
@@ -71,7 +76,20 @@ func _build_menu() -> void:
 	name_edit.max_length = 16
 	box.add_child(name_edit)
 
-	box.add_child(_btn("HOST A PARTY", _on_host, Color(0.45, 0.9, 0.5)))
+	var host_row := HBoxContainer.new()
+	host_row.add_theme_constant_override("separation", 8)
+	box.add_child(host_row)
+	var host_btn := _btn("HOST A PARTY", _on_host, Color(0.45, 0.9, 0.5))
+	host_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	host_row.add_child(host_btn)
+	var mode_pick := OptionButton.new()
+	mode_pick.add_item("Sandbox")
+	mode_pick.add_item("Campaign")
+	mode_pick.tooltip_text = "Sandbox: spawn anything, free money.\nCampaign: no spawning - do jobs in town to earn cash."
+	mode_pick.custom_minimum_size = Vector2(150, 50)
+	mode_pick.selected = 1 if Net.mode == "campaign" else 0
+	mode_pick.item_selected.connect(func(i: int): Net.mode = "campaign" if i == 1 else "sandbox")
+	host_row.add_child(mode_pick)
 	var join_row := HBoxContainer.new()
 	join_row.add_theme_constant_override("separation", 8)
 	box.add_child(join_row)

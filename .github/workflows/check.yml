@@ -1,0 +1,32 @@
+# Quick check on every push: imports the project, then runs the automatic smoke test
+# (hosts a game headless, spawns everything, drives cars, does every job) and fails on any script error.
+name: Check
+
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: "4.3"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Godot
+        run: |
+          wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q "Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          sudo mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+      - name: Import
+        run: timeout 600 godot --headless --editor --quit 2>&1 | tail -n 40 || true
+      - name: Smoke test
+        run: |
+          set -o pipefail
+          timeout 300 godot --headless --path . -- --smoke 2>&1 | tee smoke.log || true
+          echo "----------------------------------------"
+          if grep -nE "SCRIPT ERROR|Parse Error|Invalid call|Invalid access|Invalid get|Invalid set" smoke.log; then
+            echo "Script errors found"; exit 1
+          fi
+          grep -q "SMOKE TEST DONE" smoke.log || { echo "Smoke test did not finish"; exit 1; }

@@ -19,7 +19,27 @@ const DEFS := {
 	"cart":   {"mass": 8.0, "float": 0.8, "bounce": 0.05, "friction": 0.6, "half": 0.45},
 	"gloves": {"mass": 0.3, "float": 1.0, "bounce": 0.2, "friction": 0.8, "half": 0.08},
 	"rocket": {"mass": 1.0, "float": 0.0, "bounce": 0.0, "friction": 0.5, "half": 0.2},
+	"package": {"mass": 1.2, "float": 1.4, "bounce": 0.1, "friction": 0.8, "half": 0.2},
+	"sedan":  {"mass": 40.0, "float": 0.6, "bounce": 0.02, "friction": 0.7, "half": 0.7},
+	"taxi":   {"mass": 40.0, "float": 0.6, "bounce": 0.02, "friction": 0.7, "half": 0.7},
+	"police": {"mass": 42.0, "float": 0.6, "bounce": 0.02, "friction": 0.7, "half": 0.7},
+	"sports": {"mass": 36.0, "float": 0.6, "bounce": 0.02, "friction": 0.7, "half": 0.6},
+	"truck":  {"mass": 55.0, "float": 0.6, "bounce": 0.02, "friction": 0.7, "half": 0.9},
 }
+
+## Full-size cars: physics box, top speed / reverse (m/s), acceleration, turn rate, driver seat
+## (where the driver's FEET go, car space: sitting means the feet end up below the seat).
+const CARS := {
+	"sedan":  {"size": Vector3(1.84, 1.45, 4.5), "top": 16.0, "rev": 5.0, "accel": 8.0, "turn": 1.5, "seat": Vector3(-0.4, -1.08, 0.3), "label": "sedan"},
+	"taxi":   {"size": Vector3(1.84, 1.45, 4.5), "top": 16.0, "rev": 5.0, "accel": 8.0, "turn": 1.5, "seat": Vector3(-0.4, -1.08, 0.3), "label": "taxi"},
+	"police": {"size": Vector3(1.84, 1.45, 4.6), "top": 19.0, "rev": 6.0, "accel": 10.0, "turn": 1.6, "seat": Vector3(-0.4, -1.08, 0.3), "label": "police car"},
+	"sports": {"size": Vector3(1.92, 1.18, 4.4), "top": 24.0, "rev": 6.0, "accel": 13.0, "turn": 1.75, "seat": Vector3(-0.4, -1.14, 0.6), "label": "sports car"},
+	"truck":  {"size": Vector3(2.0, 1.85, 5.3), "top": 13.0, "rev": 4.5, "accel": 6.0, "turn": 1.25, "seat": Vector3(-0.42, -1.2, -0.15), "label": "pickup truck"},
+}
+const CAR_COLORS := ["2b5fb4", "b42b2b", "e8e8e8", "222428", "3d7a45", "c9a227", "7a3db4", "d96c1a", "8a9099", "1f8a8a"]
+
+static func is_car(k: String) -> bool:
+	return CARS.has(k)
 
 ## Extra kinds: tools you can USE while holding them (LMB). "aim" = held pointing where you look,
 ## "upright" = held level (only turns left/right), "cd" = seconds between uses.
@@ -45,6 +65,7 @@ const LABELS := {
 	"burger": "Burger", "pizza": "Pizza slice", "soda": "Soda", "beer": "Beer",
 	"rpg": "RPG", "rocket": "Rocket", "coupe": "Toy coupe", "cart": "Shopping cart", "npc": "Person",
 	"gloves": "Rubber gloves", "limb_arm": "Arm", "limb_leg": "Leg", "limb_head": "Head",
+	"package": "Package", "sedan": "Sedan", "taxi": "Taxi", "police": "Police car", "sports": "Sports car", "truck": "Pickup truck",
 }
 const CATEGORIES := {
 	"Toys": ["crate", "ball", "chair", "melon", "duck", "pin", "barrel", "bomb", "coupe", "cart"],
@@ -52,6 +73,7 @@ const CATEGORIES := {
 	"Weapons": ["pistol", "knife", "bat"],
 	"Props": ["cig", "console", "gloves"],
 	"Food": ["burger", "pizza", "soda", "beer"],
+	"Cars": ["sedan", "taxi", "police", "sports", "truck"],
 }
 
 static func def_of(k: String) -> Dictionary:
@@ -60,10 +82,10 @@ static func def_of(k: String) -> Dictionary:
 ## Kinds nobody can spawn from the menu (the RPG lives on the roof; rockets only come out of it).
 ## Things you get into and drive (F): the toy coupe and the shopping cart.
 static func is_vehicle(k: String) -> bool:
-	return k == "coupe" or k == "cart"
+	return k == "coupe" or k == "cart" or CARS.has(k)
 
 static func is_restricted(k: String) -> bool:
-	return k == "rpg" or k == "rocket" or is_limb(k)
+	return k == "rpg" or k == "rocket" or k == "package" or is_limb(k)
 
 ## Body parts torn off people: only come from gore, never from the spawn menu.
 static func is_limb(k: String) -> bool:
@@ -114,6 +136,14 @@ var _boost_snd := 0.0
 var _steer := 0.0
 var _prev_speed := 0.0
 var _bonk_cd := {}
+var driver_seed := 0        # cars: a townsperson is driving (their look seed; 0 = nobody). Synced.
+var siren := false          # police car lights (synced)
+var ai_route: Array = []    # server: [from node, to node] in the town road graph
+var _ai_block_t := 0.0
+var _ai_honk_t := 0.0
+var _driver_body: NpcBody
+var _driver_shown := -1
+var _siren_nodes: Array[Node3D] = []
 
 func _ready() -> void:
 	if visual_only:
@@ -141,6 +171,8 @@ func _ready() -> void:
 	physics_material_override = _pm
 	if is_vehicle(kind):
 		can_sleep = false
+	if is_car(kind) and driver_seed != 0:
+		_pm.friction = 0.0   # the AI drives it like a player would
 	if kind == "cart" and multiplayer.is_server():
 		# anything that lands in the basket sticks there and rides along
 		var basket := Area3D.new()
@@ -190,6 +222,10 @@ func _ready() -> void:
 		cfg.property_set_replication_mode(^".:rider", SceneReplicationConfig.REPLICATION_MODE_ON_CHANGE)
 		cfg.add_property(^".:passenger")
 		cfg.property_set_replication_mode(^".:passenger", SceneReplicationConfig.REPLICATION_MODE_ON_CHANGE)
+	if is_car(kind):
+		for cp in [^".:driver_seed", ^".:siren"]:
+			cfg.add_property(cp)
+			cfg.property_set_replication_mode(cp, SceneReplicationConfig.REPLICATION_MODE_ON_CHANGE)
 	var sync := MultiplayerSynchronizer.new()
 	sync.name = "Sync"
 	sync.replication_config = cfg
@@ -379,6 +415,14 @@ func _build_body() -> void:
 		return
 	_build_toy()
 	_attach_model(self)
+	if is_car(kind):
+		_paint_car()
+		if _model != null:
+			for nm in ["SirenR", "SirenB"]:
+				var sn := ModelLib.find(_model, nm) as Node3D
+				if sn != null:
+					_siren_nodes.append(sn)
+					sn.visible = false
 	if kind == "coupe":
 		if _model != null:
 			CarPaint.apply(_model)
@@ -520,6 +564,13 @@ func _build_toy() -> void:
 			_mesh(band, Mats.solid(Color(0.15, 0.15, 0.15), 0.4, 0.6), Vector3(0, -0.25, 0))
 		"coupe":
 			_shape_box(Vector3(0.72, 0.62, 1.14))
+		"sedan", "taxi", "police", "sports", "truck":
+			_shape_box(CARS[kind]["size"])
+			if _model == null:
+				_mesh(_box_mesh(CARS[kind]["size"]), Mats.solid(Color.html(tint) if tint != "" else Color(0.5, 0.5, 0.55), 0.4))
+		"package":
+			_shape_box(Vector3(0.5, 0.36, 0.4))
+			_mesh(_box_mesh(Vector3(0.5, 0.36, 0.4)), Mats.textured("planks", Color(0.75, 0.58, 0.38), 0.6))
 		"cart":
 			_shape_box(Vector3(0.6, 0.62, 0.95), Vector3(0, 0.15, -0.04))   # basket
 			_shape_box(Vector3(0.5, 0.36, 0.8), Vector3(0, -0.3, -0.04))    # undercarriage
@@ -575,7 +626,9 @@ func _drive_step(state: PhysicsDirectBodyState3D) -> void:
 	var fwd_flat := -upright.z
 	var vel := state.linear_velocity
 	var cart := kind == "cart"
-	var boost := boosting and rider != 0 and not cart   # a cart has no rockets: SHIFT just makes you run
+	var car := is_car(kind)
+	var driven := rider != 0 or driver_seed != 0
+	var boost := boosting and rider != 0 and kind == "coupe"   # only the toy car has rockets
 	var running := boosting and rider != 0 and cart
 	gravity_scale = 0.5 if boost else 1.0   # the boosters take some weight off, so ramps become jumps
 
@@ -597,15 +650,21 @@ func _drive_step(state: PhysicsDirectBodyState3D) -> void:
 		_air_time += state.step
 		if _air_time > 0.15:
 			_ground_n = _ground_n.lerp(Vector3.UP, 0.08).normalized()
-	var up := _ground_n if rider != 0 else Vector3.UP
+	var up := _ground_n if driven else Vector3.UP
 	var slope_fwd := (fwd_flat - up * fwd_flat.dot(up)).normalized()
 
-	if rider != 0:
+	if driven:
 		var fv := vel.dot(slope_fwd) if grounded else vel.dot(fwd_flat)
 		var target := _thr * (7.0 if _thr > 0.0 else 3.5)
 		if cart:
 			target = _thr * ((7.5 if running else 4.6) if _thr > 0.0 else 2.4)
 		var accel := 14.0 if absf(target) > 0.1 else 8.0
+		if car:
+			var spec: Dictionary = CARS[kind]
+			target = _thr * (float(spec["top"]) if _thr > 0.0 else float(spec["rev"]))
+			accel = float(spec["accel"]) if absf(target) > 0.1 else 5.0
+			if signf(target) != signf(fv) and absf(fv) > 0.5 and absf(target) > 0.1:
+				accel = 18.0   # braking is stronger than speeding up
 		if boost:
 			target = 17.0
 			accel = 24.0
@@ -619,15 +678,18 @@ func _drive_step(state: PhysicsDirectBodyState3D) -> void:
 		var turn := -_steer * (1.5 if boost else 2.2) * clampf(fv / 2.5, -1.0, 1.0)
 		if cart:
 			turn = -_steer * 2.4   # trolleys spin on the spot
+		elif car:
+			var top := float(CARS[kind]["top"])
+			turn = -_steer * float(CARS[kind]["turn"]) * clampf(fv / 4.0, -1.0, 1.0) * (1.0 - 0.4 * clampf(absf(fv) / top, 0.0, 1.0))
 		state.angular_velocity = Vector3(0.0, turn, 0.0)
 	else:
 		state.angular_velocity = Vector3(0.0, state.angular_velocity.y * 0.9, 0.0)
 		vel.x *= 0.98
 		vel.z *= 0.98
-	state.linear_velocity = vel.limit_length(MAX_SPEED)
+	state.linear_velocity = vel.limit_length(MAX_SPEED if not car else float(CARS[kind]["top"]) + 6.0)
 	# keep the body level with the ground it is driving on
 	var basis_out := upright
-	if rider != 0 and up.y < 0.999:
+	if driven and up.y < 0.999:
 		var right := fwd_flat.cross(up).normalized()
 		var back := right.cross(up).normalized()
 		basis_out = Basis(right, up, back)
@@ -643,6 +705,10 @@ func drive(throttle: float, steer: float, boost := false) -> void:
 	_last_drive = Time.get_ticks_msec()
 
 func _process(delta: float) -> void:
+	if is_car(kind) and not visual_only:
+		_update_driver()
+		_siren_fx()
+		return
 	if kind == "coupe" and not visual_only:
 		_boost_fx(delta)
 		_coupe_face(delta)
@@ -723,6 +789,8 @@ func _physics_process(delta: float) -> void:
 	_prev_speed = linear_velocity.length()  # speed BEFORE this step's collisions
 	if kind == "cart":
 		_carry_contents()
+	if driver_seed != 0 and rider == 0:
+		_ai_drive(delta)
 	if is_vehicle(kind) and rider != 0 and Time.get_ticks_msec() - _last_drive > 1500:
 		# the driver vanished (disconnected, respawned, fell over...): free the seat
 		var old := get_tree().get_first_node_in_group("world")
@@ -765,14 +833,14 @@ func _on_body_entered(body: Node) -> void:
 		explode()
 		return
 	# Driving into people: a moving cart or car bowls them over.
-	if is_vehicle(kind) and rider != 0 and _prev_speed > 2.2:
+	if is_vehicle(kind) and (rider != 0 or driver_seed != 0) and _prev_speed > 2.2:
 		var victim := body as Player
 		var now0 := Time.get_ticks_msec()
 		if victim != null and victim.get_multiplayer_authority() != rider and victim.get_multiplayer_authority() != passenger:
 			var vid := victim.get_multiplayer_authority()
 			if now0 - int(_bonk_cd.get(vid, 0)) > 700:
 				_bonk_cd[vid] = now0
-				var shove := linear_velocity.limit_length(8.0) * 1.1 + Vector3.UP * 3.0
+				var shove := linear_velocity.limit_length(8.0 if not is_car(kind) else 14.0) * 1.1 + Vector3.UP * (3.0 if not is_car(kind) else 5.0)
 				victim.knock.rpc_id(vid, shove)
 				_sfx_all("thud")
 				var gw := get_tree().get_first_node_in_group("world") as GameWorld
@@ -781,7 +849,8 @@ func _on_body_entered(body: Node) -> void:
 			return
 		var npc := body as Npc
 		if npc != null:
-			npc.damage(int(_prev_speed * 9.0), linear_velocity.limit_length(8.0) + Vector3.UP * 3.0, rider, npc.global_position + Vector3.UP * 0.45)
+			var hard := 9.0 if not is_car(kind) else 14.0
+			npc.damage(int(_prev_speed * hard), linear_velocity.limit_length(8.0 if not is_car(kind) else 14.0) + Vector3.UP * 3.0, rider, npc.global_position + Vector3.UP * 0.45)
 			return
 	var hit_npc := body as Npc
 	if hit_npc != null and _prev_speed > 7.0 and _age > 0.15:
@@ -802,7 +871,7 @@ func _on_body_entered(body: Node) -> void:
 ## A player picks this up: it disappears from the world and appears in their hand.
 @rpc("any_peer", "call_local", "reliable")
 func pickup() -> void:
-	if not multiplayer.is_server() or exploded or kind == "rocket" or (is_vehicle(kind) and (rider != 0 or passenger != 0)):
+	if not multiplayer.is_server() or exploded or kind == "rocket" or is_car(kind) or (is_vehicle(kind) and (rider != 0 or passenger != 0)):
 		return
 	var who := _sender()
 	var world := get_tree().get_first_node_in_group("world") as GameWorld
@@ -876,15 +945,34 @@ func pop() -> void:
 ## Jump on! A player near a flying rocket rides it and steers with their look direction.
 @rpc("any_peer", "call_local", "reliable")
 func ride() -> void:
-	if not multiplayer.is_server() or (kind != "rocket" and not is_vehicle(kind)) or rider != 0 or exploded:
+	if not multiplayer.is_server() or (kind != "rocket" and not is_vehicle(kind)) or exploded:
+		return
+	if rider != 0 and not is_car(kind):
 		return
 	var who := _sender()
+	if who == rider:
+		return
 	var world := get_tree().get_first_node_in_group("world") as GameWorld
 	var pl: Player = null
 	if world != null:
 		pl = world.get_node_or_null(str(who)) as Player
-	if pl == null or pl.global_position.distance_to(global_position) > (8.0 if kind == "rocket" else 3.2):
+	var reach := 8.0 if kind == "rocket" else (4.2 if is_car(kind) else 3.2)
+	if pl == null or pl.global_position.distance_to(global_position) > reach:
 		return
+	if is_car(kind) and world != null:
+		# hijack! whoever is in the driver's seat gets dragged out
+		if driver_seed != 0:
+			world.npc_driver_ejected(self, driver_seed, who)
+			driver_seed = 0
+			ai_route = []
+		if rider != 0:
+			var old := world.get_node_or_null(str(rider)) as Player
+			if old != null:
+				remove_collision_exception_with(old)
+				old.stop_ride.rpc_id(rider)
+				old.knock.rpc_id(rider, global_basis * Vector3(-5.0, 0.0, 0.0) + Vector3.UP * 3.0)
+			world.toast.rpc("%s got carjacked!" % str(Net.players.get(rider, {}).get("name", "Someone")))
+			rider = 0
 	rider = who
 	sleeping = false
 	_last_drive = Time.get_ticks_msec()
@@ -937,6 +1025,123 @@ func end_ride() -> void:
 	boosting = false
 	gravity_scale = 1.0
 	_pm.friction = float(def_of(kind)["friction"])
+
+## Car horn (LMB while driving). Police cars: RMB flips the lights on and off.
+@rpc("any_peer", "call_local", "reliable")
+func horn() -> void:
+	if not multiplayer.is_server() or not is_car(kind) or _sender() != rider:
+		return
+	_sfx_all("honk")
+
+@rpc("any_peer", "call_local", "reliable")
+func toggle_siren() -> void:
+	if not multiplayer.is_server() or kind != "police" or _sender() != rider:
+		return
+	siren = not siren
+
+# ------------------------------------------------------------ cars: paint, driver, AI
+func _paint_car() -> void:
+	if _model == null:
+		return
+	var c := Color.html(tint) if tint != "" and Color.html_is_valid(tint) else Color(-1, 0, 0)
+	if kind == "taxi" or kind == "police" or c.r < 0.0:
+		return
+	var paint := Mats.solid(c, 0.25, 0.3)
+	for n in _model.find_children("*", "MeshInstance3D", true, false):
+		var mi := n as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		for i in mi.mesh.get_surface_count():
+			var m := mi.mesh.surface_get_material(i)
+			if m != null and String(m.resource_name) == "paint":
+				mi.set_surface_override_material(i, paint)
+
+## A townsperson behind the wheel (everyone builds the same one from the seed).
+func _update_driver() -> void:
+	if driver_seed == _driver_shown:
+		return
+	_driver_shown = driver_seed
+	if _driver_body != null:
+		_driver_body.queue_free()
+		_driver_body = null
+	if driver_seed == 0:
+		return
+	_driver_body = NpcBody.new()
+	add_child(_driver_body)
+	if not _driver_body.load_npc(NpcLook.random(driver_seed)):
+		_driver_body.queue_free()
+		_driver_body = null
+		return
+	_driver_body.position = CARS[kind]["seat"]
+	_driver_body.set_pose(6, 0)
+	_driver_body.animate(0.0, false)
+
+func _siren_fx() -> void:
+	if _siren_nodes.size() < 2:
+		return
+	var on := siren
+	var t := Time.get_ticks_msec() / 160
+	_siren_nodes[0].visible = on and t % 2 == 0
+	_siren_nodes[1].visible = on and t % 2 == 1
+
+## Server: a townsperson drives this car round the town's roads (right-hand traffic), slowing for
+## corners, braking (and honking) for anything in the way, and eventually just pushing through.
+func _ai_drive(delta: float) -> void:
+	var world := get_tree().get_first_node_in_group("world") as GameWorld
+	if world == null or world.town == null or ai_route.size() < 2:
+		_thr = 0.0
+		return
+	var town := world.town
+	var a: Vector3 = town.road_nodes[int(ai_route[0])]
+	var b: Vector3 = town.road_nodes[int(ai_route[1])]
+	var seg := b - a
+	seg.y = 0.0
+	if seg.length() < 0.5:
+		ai_route = [ai_route[1], town.next_road_node(int(ai_route[1]), int(ai_route[0]))]
+		return
+	var d := seg.normalized()
+	var right := Vector3(-d.z, 0.0, d.x)
+	var lane_a := a + right * 2.1
+	var pos := global_position
+	pos.y = 0.0
+	var along := (pos - lane_a).dot(d)
+	if along > seg.length() - 6.0:
+		ai_route = [ai_route[1], town.next_road_node(int(ai_route[1]), int(ai_route[0]))]
+		return
+	var aim := lane_a + d * minf(along + 9.0, seg.length() + 3.0)
+	var to := aim - pos
+	var want_yaw := atan2(-to.x, -to.z)
+	var diff := wrapf(want_yaw - global_rotation.y, -PI, PI)
+	_steer = clampf(-diff * 2.2, -1.0, 1.0)
+	var cruise := 0.55 if kind != "police" else 0.6
+	var thr := cruise * (1.0 - clampf(absf(diff) * 1.2, 0.0, 0.65))
+	# something in front?
+	var fwd := -global_basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized()
+	var half_len := float(CARS[kind]["size"].z) * 0.5
+	var from := global_position + fwd * (half_len + 0.2) + Vector3.UP * 0.1
+	var q := PhysicsRayQueryParameters3D.create(from, from + fwd * 9.0, 1 | 4)
+	q.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	var blocked := false
+	if not hit.is_empty():
+		var col := hit["collider"] as Node
+		blocked = col is Player or col is Npc or col is Prop or (col != null and col.get_parent() is PlayerRagdoll)
+	if blocked:
+		_ai_block_t += delta
+		_ai_honk_t -= delta
+		if _ai_honk_t <= 0.0:
+			_ai_honk_t = randf_range(1.5, 3.0)
+			_sfx_all("honk")
+		if _ai_block_t < 6.0:
+			thr = 0.0 if linear_velocity.length() < 1.0 else -0.4
+		else:
+			thr = 0.35   # fine, I'm going through
+	else:
+		_ai_block_t = 0.0
+	_thr = thr
+	_last_drive = Time.get_ticks_msec()
 
 # ---------------------------------------------------------------- effects
 func play_fx(what: String) -> void:

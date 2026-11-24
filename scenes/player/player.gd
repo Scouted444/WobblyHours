@@ -101,6 +101,7 @@ var carrier := 0           # (victim side) peer id carrying me while I am knocke
 var carrying := 0          # (holder side) peer id of the knocked-out player I hold above my head
 var _ride: Prop            # the rocket I am riding
 var _seat := false         # true = I am sitting IN the shopping cart (someone else pushes)
+var _ride_stash := []      # [kind, tint] of what I was holding when I got into a vehicle (given back after)
 var _equip_anim := 1.0
 var _cig_t := -1.0          # seconds into the "raise the cigarette to my mouth" animation (-1 = not smoking)
 var _cig_puffed := false
@@ -489,6 +490,9 @@ static func ride_offset(v: Prop, seat: bool) -> Vector3:
 			return flat * (Vector3(0.0, -0.58, 0.0) if seat else Vector3(0.0, -0.5, 0.95))
 		"coupe":
 			return v.global_basis * Vector3(0.0, -0.45, 0.15)
+	if Prop.is_car(v.kind):
+		var seat: Vector3 = Prop.CARS[v.kind]["seat"]
+		return v.global_basis * seat
 	return Vector3(0.0, 0.15, 0.0)
 
 func _update_rig(delta: float, mine: bool) -> void:
@@ -767,6 +771,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("interact") and _ride != null and Prop.is_vehicle(_ride.kind):
 		_dismount(Vector3.ZERO)
 		return
+	if _ride != null and is_instance_valid(_ride) and Prop.is_car(_ride.kind) and not _seat:
+		if event.is_action_pressed("shove"):
+			_ride.horn.rpc_id(1)
+			return
+		if event.is_action_pressed("grab") and _ride.kind == "police":
+			_ride.toggle_siren.rpc_id(1)
+			return
 	if event.is_action_pressed("interact") and _world != null and _ride == null and not ragdolled:
 		if carrying != 0:
 			_drop_carried(false)
@@ -782,12 +793,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _world.near_shop(global_position):
 			_world.open_shop(self)
 			return
+		if _world.near_job_board(global_position):
+			_world.open_jobs(self)
+			return
 		var rk := _find_rocket()
 		if rk != null:
 			if rk.kind == "cart" and _cart_wants_seat(rk):
 				rk.sit_in.rpc_id(1)
 			else:
 				rk.ride.rpc_id(1)
+			return
+		var someone := _find_person()
+		if someone != null:
+			someone.talk.rpc_id(1)
 			return
 		var down := _find_downed()
 		if down != null:
@@ -986,6 +1004,8 @@ func _publish(spd: float) -> void:
 	var st := 0
 	if _ride != null and is_instance_valid(_ride):
 		st = 3 if (_ride.kind == "coupe" or _seat) else (5 if _ride.kind == "cart" else 4)
+		if Prop.is_car(_ride.kind):
+			st = 6
 		veh_yaw = _ride.global_rotation.y
 	elif _swimming:
 		st = 2
@@ -1165,7 +1185,10 @@ func _find_rocket() -> Prop:
 		if p == null or (p.kind != "rocket" and not Prop.is_vehicle(p.kind)) or p.exploded:
 			continue
 		var d := p.global_position.distance_to(global_position + Vector3.UP)
-		if Prop.is_vehicle(p.kind) and (d > 3.0 or (p.rider != 0 and (p.kind != "cart" or p.passenger != 0))):
+		if Prop.is_car(p.kind):
+			if d > 3.6 or p.rider == get_multiplayer_authority():
+				continue   # cars: you can always pull the driver out
+		elif Prop.is_vehicle(p.kind) and (d > 3.0 or (p.rider != 0 and (p.kind != "cart" or p.passenger != 0))):
 			continue
 		if d < best_d:
 			best_d = d
@@ -1223,7 +1246,9 @@ func begin_ride(path: NodePath, seat := false) -> void:
 	var rk := get_node_or_null(path) as Prop
 	if rk == null:
 		return
-	drop_equipped(Vector3.ZERO)
+	if equipped != "":
+		_ride_stash = [equipped, equipped_tint]   # kept safe while driving, back in your hand when you get out
+		_set_equipped("")
 	_ride = rk
 	_seat = seat
 	ride_name = rk.name
@@ -1234,10 +1259,62 @@ func stop_ride() -> void:
 	var sender := multiplayer.get_remote_sender_id()
 	if (sender != 0 and sender != 1) or not is_multiplayer_authority():
 		return
+	if _ride != null and is_instance_valid(_ride) and Prop.is_car(_ride.kind):
+		global_position = _car_door(_ride)
 	_ride = null
 	_seat = false
 	ride_name = ""
 	velocity = Vector3(0.0, 2.0, 0.0)
+	_unstash()
+
+## Where you climb out of a car: beside the driver's door.
+static func _car_door(car: Prop) -> Vector3:
+	var size: Vector3 = Prop.CARS[car.kind]["size"]
+	return car.global_position + Basis(Vector3.UP, car.global_rotation.y) * Vector3(-size.x * 0.5 - 0.7, 0.0, 0.3) + Vector3.UP * (0.3 - size.y * 0.5)
+
+func _unstash() -> void:
+	if _ride_stash.is_empty():
+		return
+	var k := str(_ride_stash[0])
+	var t := str(_ride_stash[1])
+	_ride_stash = []
+	if equipped == "":
+		_set_equipped(k, t)
+	elif inventory.size() < INVENTORY_SIZE:
+		inventory.append([k, t])
+
+## Server: a job took this out of my hands (delivered).
+@rpc("any_peer", "call_local", "reliable")
+func take_item(kind: String) -> void:
+	var sender := multiplayer.get_remote_sender_id()
+	if (sender != 0 and sender != 1) or not is_multiplayer_authority():
+		return
+	if equipped == kind:
+		_set_equipped("")
+	elif not _ride_stash.is_empty() and str(_ride_stash[0]) == kind:
+		_ride_stash = []
+
+## The person in front of me I could talk to (F).
+func _find_person() -> Npc:
+	if camera == null:
+		return null
+	var from := camera.global_position
+	var fwd := -camera.global_basis.z
+	var best: Npc = null
+	var best_score := 0.0
+	for n in get_tree().get_nodes_in_group("npcs"):
+		var npc := n as Npc
+		if npc == null or npc.dead:
+			continue
+		var to := npc.global_position + Vector3.UP * 1.3 - from
+		var d := to.length()
+		if d > 3.2:
+			continue
+		var score := to.normalized().dot(fwd)
+		if score > 0.6 and score > best_score:
+			best_score = score
+			best = npc
+	return best
 
 func _ride_step() -> void:
 	if not is_instance_valid(_ride) or _ride.exploded:
@@ -1267,6 +1344,17 @@ func _ride_step() -> void:
 		velocity = Vector3.ZERO
 		_publish((global_position - was).length() / maxf(get_physics_process_delta_time(), 0.001))
 		return
+	if Prop.is_car(_ride.kind):
+		var thr3 := 0.0
+		var steer3 := 0.0
+		if not input_locked:
+			thr3 = Input.get_axis("move_back", "move_forward")
+			steer3 = Input.get_axis("move_left", "move_right")
+		_ride.drive.rpc_id(1, thr3, steer3, false)
+		global_position = _ride.global_position + ride_offset(_ride, false)
+		velocity = Vector3.ZERO
+		_publish(0.0)
+		return
 	if _ride.kind == "coupe":
 		var thr := 0.0
 		var steer := 0.0
@@ -1293,13 +1381,17 @@ func _dismount(kick: Vector3) -> void:
 			global_position = rk.global_position + Basis(Vector3.UP, rk.global_rotation.y) * Vector3(0.9, -0.3, 0.0) + Vector3.UP * 0.3
 			velocity = kick.limit_length(9.0)
 			rk.leave_seat.rpc_id(1)
+			_unstash()
 			return
 		if rk.kind == "cart":
 			global_position = rk.global_position + Basis(Vector3.UP, rk.global_rotation.y) * Vector3(0.0, -0.4, 1.1) + Vector3.UP * 0.2
 		elif rk.kind == "coupe":
 			global_position = rk.global_position + rk.global_basis * Vector3(1.0, 0.0, 0.2) + Vector3.UP * 0.4
+		elif Prop.is_car(rk.kind):
+			global_position = _car_door(rk)
 		velocity = kick.limit_length(9.0)
 		rk.end_ride.rpc_id(1)
+	_unstash()
 
 # ------------------------------------------------- items in your hand
 func _ray() -> Dictionary:
@@ -1741,6 +1833,8 @@ func _update_prompt() -> void:
 			_set_prompt("W/S push   A/D turn   SHIFT run   ram into people!   F let go")
 		elif _ride.kind == "coupe":
 			_set_prompt("W/S drive   A/D steer   F or SPACE get out")
+		elif Prop.is_car(_ride.kind):
+			_set_prompt("W/S drive   A/D steer   LMB horn%s   F get out" % ("   RMB lights" if _ride.kind == "police" else ""))
 		else:
 			_set_prompt("Look to steer   SPACE bail out")
 		return
@@ -1752,8 +1846,18 @@ func _update_prompt() -> void:
 		if rk != null:
 			if rk.kind == "cart":
 				_set_prompt("F  hop in the cart" if _cart_wants_seat(rk) else "F  push the shopping cart")
+			elif Prop.is_car(rk.kind):
+				var lbl := str(Prop.CARS[rk.kind]["label"])
+				_set_prompt(("F  HIJACK the %s!" % lbl) if (rk.driver_seed != 0 or rk.rider != 0) else ("F  get in the %s" % lbl))
 			else:
 				_set_prompt("F  drive the toy coupe" if rk.kind == "coupe" else "F  RIDE THE ROCKET!")
+			return
+		if _world.near_job_board(global_position):
+			_set_prompt("F  job board (find work, earn cash)")
+			return
+		var someone := _find_person()
+		if someone != null:
+			_set_prompt("F  talk to %s   (or press T and say something)" % (someone.npc_name if someone.resident else "them"))
 			return
 		var down := _find_downed()
 		if down != null:

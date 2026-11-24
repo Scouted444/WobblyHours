@@ -43,11 +43,19 @@ jobs:
           mv templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
           rm -rf templates *.zip *.tpz
 
+      - name: Smoke test (no release if the game has script errors)
+        if: steps.ver.outputs.exists == 'no'
+        run: |
+          timeout 600 godot --headless --editor --quit || true          # first run imports models, textures, scripts
+          timeout 300 godot --headless --path . -- --smoke 2>&1 | tee smoke.log || true
+          if grep -nE "SCRIPT ERROR|Parse Error|Invalid call|Invalid access|Invalid get|Invalid set" smoke.log; then exit 1; fi
+          grep -q "SMOKE TEST DONE" smoke.log
+
       - name: Export the game
         if: steps.ver.outputs.exists == 'no'
         run: |
           mkdir -p export
-          timeout 600 godot --headless --editor --quit || true          # first run imports models, textures, scripts
+          timeout 600 godot --headless --editor --quit || true
           godot --headless --export-release "Windows Desktop" export/WobblyHours.exe
           test -f export/WobblyHours.exe && test -f export/WobblyHours.pck
           cp version.txt export/

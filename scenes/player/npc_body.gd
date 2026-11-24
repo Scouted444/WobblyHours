@@ -388,7 +388,18 @@ func _process(delta: float) -> void:
 	if not _removed.is_empty():
 		_apply_removed()
 
+## Bones that only ever get turned RELATIVE to their current pose. The model's idle animation doesn't key
+## them, so nothing rewrites them between frames: put them back to rest first or the turns pile up
+## (that was the head slowly spinning / tipping over).
+const RELATIVE_BONES := ["Spine", "SpineUpper", "Neck", "Head", "Foot.L", "Foot.R"]
+func _reset_relative() -> void:
+	for n in RELATIVE_BONES:
+		var b := int(_bone.get(n, -1))
+		if b >= 0:
+			_sk.set_bone_pose_rotation(b, _sk.get_bone_rest(b).basis.get_rotation_quaternion())
+
 func _pose_step(delta: float) -> void:
+	_reset_relative()
 	if not _rag.is_empty():
 		_apply_ragdoll()
 		return
@@ -479,6 +490,15 @@ func _pose_step(delta: float) -> void:
 			al = 0.8 + 0.06 * sin(tj * 7.0); aq = 0.8 + 0.06 * sin(tj * 7.0 + 2.0)
 			el = 0.5; eq = 0.5
 			out = 0.05
+		6:
+			# sitting in a real car seat: thighs level, shins down, hands on the wheel
+			want_w = 1.0
+			var tc := Time.get_ticks_msec() * 0.001
+			tl = 1.45; tq = 1.45
+			kl = 1.45; kq = 1.45
+			al = 1.05 + 0.04 * sin(tc * 1.3); aq = 1.05 + 0.04 * sin(tc * 1.3 + 1.0)
+			el = 0.55; eq = 0.55
+			out = 0.08
 		4:
 			want_w = 1.0
 			tl = 0.15; tq = 0.0

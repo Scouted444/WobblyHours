@@ -88,7 +88,7 @@ func _host_tools(box: VBoxContainer) -> void:
 	var row2 := HBoxContainer.new()
 	row2.add_theme_constant_override("separation", 6)
 	box.add_child(row2)
-	for e in [[row1, "Clear props", "props"], [row1, "Clear people", "people"], [row2, "Clear blood & body parts", "gore"], [row2, "Reset everything", "all"]]:
+	for e in [[row1, "Clear props", "props"], [row1, "Clear people", "people"], [row1, "Clear cars", "traffic"], [row2, "Clear blood & body parts", "gore"], [row2, "Reset everything", "all"]]:
 		var what: String = e[2]
 		var b := _btn(String(e[1]), func(): gw.host_clear(what))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
