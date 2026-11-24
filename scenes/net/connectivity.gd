@@ -17,6 +17,7 @@ var invite_short := ""      # ABCDE-FGHIJ
 var invite_full := ""       # with the LAN and IPv6 parts (what "Copy invite" copies)
 var router_ok := false      # the port was opened on the router
 var router_msg := "Checking your router..."
+var router_checked := false
 var public_v4 := ""
 var public_v6 := ""
 var lan_v4 := ""
@@ -59,6 +60,7 @@ func _process(delta: float) -> void:
 func start_host() -> void:
 	hosting = true
 	router_ok = false
+	router_checked = false
 	cgnat = false
 	public_v4 = ""
 	public_v6 = ""
@@ -130,6 +132,7 @@ func _upnp_done(u: UPNP, ok: bool, ext: String, msg: String) -> void:
 		return
 	_upnp = u
 	router_ok = ok
+	router_checked = true
 	router_msg = msg
 	_router_ext = ext
 	if ext != "" and Invite.is_cgnat(ext):
@@ -178,12 +181,12 @@ func _update_code() -> void:
 ## Lines for the host to read: how reachable the party is, and what to do if it isn't.
 func status_lines() -> Array[String]:
 	var l: Array[String] = []
-	l.append(("OK: " if router_ok else "!! ") + router_msg)
+	l.append(("OK: " if router_ok else ("... " if not router_checked else "!! ")) + router_msg)
 	if public_v6 != "":
 		l.append("OK: you have IPv6, so friends who also have it can join even without the router port")
 	if cgnat:
 		l.append("!! Your internet provider shares your IP with other homes (CGNAT): friends on IPv4 can't reach you. Ask your provider for a public IP, use IPv6, or let a friend host.")
-	elif not router_ok:
+	elif router_checked and not router_ok:
 		l.append("If friends can't join: forward UDP port %d to this PC (%s) in your router settings, or have someone else host." % [Net.PORT, lan_v4 if lan_v4 != "" else "this PC"])
 	l.append("Windows may ask to allow Wobbly Hours through the firewall: click Allow (tick both Private and Public).")
 	return l
