@@ -344,13 +344,18 @@ var _sev_mask := 0
 func set_severed(mask: int) -> void:
 	if mask == _sev_mask:
 		return
-	if mask == 0:
-		_removed.clear()   # back in one piece (respawned)
-	else:
-		var bits := {"head": 1, "arm_l": 2, "arm_r": 4, "leg_l": 8, "leg_r": 16}
-		for l in bits:
-			if mask & int(bits[l]) and not (_sev_mask & int(bits[l])):
-				remove_limb(String(l))
+	var bits := {"head": 1, "arm_l": 2, "arm_r": 4, "leg_l": 8, "leg_r": 16}
+	for l in bits:
+		var bit := int(bits[l])
+		var key: String = LIMB_BONES[l]
+		if (mask & bit) and not (_sev_mask & bit):
+			remove_limb(String(l))
+		elif not (mask & bit) and (_sev_mask & bit):
+			# grown back: put the bone's size back explicitly (the animation doesn't always rewrite it)
+			_removed.erase(key)
+			var b := int(_bone.get(key, -1))
+			if b >= 0 and _sk != null:
+				_sk.set_bone_pose_scale(b, _sk.get_bone_rest(b).basis.get_scale())
 	_sev_mask = mask
 
 ## World position of a limb's root bone (even if it has been removed).
