@@ -439,25 +439,25 @@ func _blocks() -> void:
 	_flat(W2.position.x, 57.0, 86.0, 61.5, 0.031, _m_pave)
 
 	# ---- A: Wobbly Jobs on the Main St corner, shops, offices
-	_row(A, "s", "Main St", 10.0, 13.0, ["sign:WOBBLY JOBS", "sign:BURGER BARN", "office", "sign:LAUNDROMAT"], 0.0, 0.0, 101)
-	_row(A, "n", "North Rd", 10.0, 13.0, ["tower", "gap", "office", "sign:BANK", "tower"], 0.0, 0.0, 2)
+	_row(A, "s", "Main St", 10.0, 13.0, ["sign:WOBBLY JOBS", "sign:BURGER BARN", "office", "sign:LAUNDROMAT"], 5.0, 5.0, 101)
+	_row(A, "n", "North Rd", 10.0, 13.0, ["tower", "gap", "office", "sign:BANK", "tower"], 5.0, 5.0, 2)
 	_row(A, "w", "Oak Ave", 9.0, 11.0, ["shop", "office"], 19.0, 19.0, 10)
 	_row(A, "e", "Elm Ave", 9.0, 11.0, ["sign:ARCADE", "gap", "office"], 19.0, 19.0, 11)
 	# ---- B: the police station on Main St
-	_row(B, "s", "Main St", 12.0, 13.0, ["sign:POLICE", "sign:HOTEL"], 0.0, 0.0, 201)
-	_row(B, "n", "North Rd", 10.0, 12.0, ["office", "tower", "office"], 0.0, 0.0, 30)
+	_row(B, "s", "Main St", 12.0, 13.0, ["sign:POLICE", "sign:HOTEL"], 5.0, 5.0, 201)
+	_row(B, "n", "North Rd", 10.0, 12.0, ["office", "tower", "office"], 5.0, 5.0, 30)
 	_row(B, "e", "Bay Ave", 9.0, 10.0, ["office", "gap", "shop"], 19.0, 19.0, 21)
 	# ---- C: Pizza Palace facing Main St, flats behind
-	_row(C, "n", "Main St", 10.0, 13.0, ["sign:PIZZA PALACE", "shop", "sign:BARBER", "office"], 0.0, 0.0, 102)
-	_row(C, "s", "South Rd", 10.0, 12.0, ["tower", "office", "gap", "tower"], 0.0, 0.0, 3)
+	_row(C, "n", "Main St", 10.0, 13.0, ["sign:PIZZA PALACE", "shop", "sign:BARBER", "office"], 5.0, 5.0, 102)
+	_row(C, "s", "South Rd", 10.0, 12.0, ["tower", "office", "gap", "tower"], 5.0, 5.0, 3)
 	_row(C, "w", "Oak Ave", 9.0, 11.0, ["house", "house"], 19.0, 19.0, 60)
 	_row(C, "e", "Elm Ave", 9.0, 11.0, ["shop", "gap", "house"], 19.0, 19.0, 61)
 	# ---- D: shops and houses
-	_row(D, "n", "Main St", 10.0, 12.0, ["sign:PAWN SHOP", "sign:DINER", "shop"], 0.0, 0.0, 202)
-	_row(D, "s", "South Rd", 9.0, 11.0, ["house", "house", "house"], 0.0, 0.0, 40)
+	_row(D, "n", "Main St", 10.0, 12.0, ["sign:PAWN SHOP", "sign:DINER", "shop"], 5.0, 5.0, 202)
+	_row(D, "s", "South Rd", 9.0, 11.0, ["house", "house", "house"], 5.0, 5.0, 40)
 	_row(D, "e", "Bay Ave", 9.0, 10.0, ["house", "gap", "house"], 19.0, 19.0, 70)
 	# ---- W2: houses along Oak Ave and Main St
-	_row(W2, "e", "Oak Ave", 9.0, 11.0, ["house", "house", "gap", "house", "house", "house"], 2.0, 4.0, 80)
+	_row(W2, "e", "Oak Ave", 9.0, 11.0, ["house", "house", "gap", "house", "house", "house"], 5.0, 4.0, 80)
 	_row(W2, "n", "Main St", 9.0, 11.0, ["house", "gap", "house"], 2.0, 16.0, 150)
 
 	# ---- W1: the parking lot with the Chop Shop at the back
