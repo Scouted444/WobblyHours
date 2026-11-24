@@ -1,8 +1,8 @@
 extends Node
 ## Networking + player registry (autoload "Net").
-## Transport is plain ENet (host a party, friends join by IP). It works on LAN and over
-## VPN-style tools (Tailscale / ZeroTier / Radmin). A Steam relay can replace the two
-## functions host() and join() later without touching the rest of the game.
+## Transport is plain ENet. Hosting opens the router port by itself (UPnP) and makes an invite code
+## (Net.link, see scenes/net/connectivity.gd); friends paste the code to join, no VPN needed.
+## Plain IPs (LAN, Radmin / Hamachi / Tailscale) still work in the join box.
 
 signal player_joined(id: int)   # emitted on the server only
 signal player_left(id: int)     # emitted on the server only
@@ -18,8 +18,13 @@ var my_look := {}  # this player's customization (see scenes/player/look.gd)
 var players := {}  # peer_id -> { "name": String }
 var map := {}      # {"id": workshop map id or "", "mode": "sandbox" / "campaign"} chosen by the host
 var mode := "sandbox"   # what the host picked on the main menu (sent to everyone in `map`)
+var link: Connectivity  # router port, invite codes, LAN discovery
+var quiet_fail := false # joining: trying several addresses, don't give up on the first failure
 
 func _ready() -> void:
+	link = Connectivity.new()
+	link.name = "Link"
+	add_child(link)
 	my_look = Look.load_saved()
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	multiplayer.connected_to_server.connect(_on_connected)
@@ -35,19 +40,21 @@ func host() -> bool:
 	players = {1: {"name": my_name, "look": Look.sanitize(my_look)}}
 	map = {"id": Content.selected_map, "mode": mode}
 	players_changed.emit()
+	link.start_host()
 	return true
 
-func join(ip: String) -> bool:
+func join(ip: String, port := PORT) -> bool:
 	ip = ip.strip_edges()
 	if ip.is_empty():
 		return false
 	var peer := ENetMultiplayerPeer.new()
-	if peer.create_client(ip, PORT) != OK:
+	if peer.create_client(ip, port) != OK:
 		return false
 	multiplayer.multiplayer_peer = peer
 	return true
 
 func leave() -> void:
+	link.stop_host()
 	if multiplayer.multiplayer_peer != null:
 		multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = null
@@ -99,6 +106,8 @@ func _on_peer_disconnected(id: int) -> void:
 		player_left.emit(id)
 
 func _on_connection_failed() -> void:
+	if quiet_fail:
+		return   # main.gd moves on to the next address in the invite
 	leave()
 	disconnected.emit("Could not connect to that host")
 

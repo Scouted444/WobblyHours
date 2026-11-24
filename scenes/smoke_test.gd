@@ -41,6 +41,7 @@ func _go() -> void:
 	await _wait(2.0)
 	_check_layout()
 	_report_town()
+	_invite_test()
 	await _seat_report()
 	await _ragdoll_test()
 	await _crash_test()
@@ -349,3 +350,15 @@ func _crash_test() -> void:
 		a.queue_free()
 	if is_instance_valid(b):
 		b.queue_free()
+
+
+func _invite_test() -> void:
+	var code := Invite.make("73.12.200.5", 24680, "192.168.1.20", "2001:db8:85a3::8a2e:370:7334")
+	_log("invite: %s -> %s" % [code, str(Invite.candidates(code, 24680))])
+	_log("invite short: %s" % str(Invite.candidates(code.get_slice(".", 0), 24680)))
+	for t in ["25.34.12.7", "1.2.3.4:5000", "[2001:db8::1]:24680", "nonsense!"]:
+		_log("join box '%s' -> %s" % [t, str(Invite.candidates(t, 24680))])
+	_log("host link: code '%s' lan '%s' lines %s" % [Net.link.invite_full, Net.link.lan_v4, str(Net.link.status_lines())])
+	var pm := PauseMenu.new()
+	add_child(pm)
+	pm.queue_free()

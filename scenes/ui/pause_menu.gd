@@ -39,6 +39,8 @@ func _ready() -> void:
 	who.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	who.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(who)
+	if multiplayer.is_server():
+		_invite(box)
 	box.add_child(_btn("Resume", func(): resume.emit()))
 	box.add_child(_btn("Customize character  (K)", func(): open_customizer.emit()))
 	box.add_child(_btn("I'm stuck!  (respawn)  (U)", func(): stuck.emit()))
@@ -71,6 +73,34 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause"):
 		get_viewport().set_input_as_handled()
 		resume.emit()
+
+## Host: the invite code friends paste into Join, and how reachable this party is.
+func _invite(box: VBoxContainer) -> void:
+	var link := Net.link
+	var code := Label.new()
+	code.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	code.add_theme_font_size_override("font_size", 30)
+	code.add_theme_color_override("font_color", Color(0.55, 1.0, 0.75))
+	box.add_child(code)
+	var copy := _btn("Copy invite  (send it to your friends)", func():
+		DisplayServer.clipboard_set(link.invite_full)
+		Sfx.play_ui(self, "pickup", -6.0))
+	box.add_child(copy)
+	var info := Label.new()
+	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	info.custom_minimum_size = Vector2(400, 0)
+	info.add_theme_font_size_override("font_size", 13)
+	info.add_theme_color_override("font_color", Color(1, 1, 1, 0.75))
+	box.add_child(info)
+	var refresh := func():
+		code.text = ("Invite code:  " + link.invite_short) if link.invite_short != "" else "Getting your invite code..."
+		copy.disabled = link.invite_full == ""
+		info.text = "\n".join(link.status_lines())
+	refresh.call()
+	link.host_info_changed.connect(refresh)
+	tree_exiting.connect(func():
+		if link.host_info_changed.is_connected(refresh):
+			link.host_info_changed.disconnect(refresh))
 
 ## Only the host sees these: clean up the map and control spawning.
 func _host_tools(box: VBoxContainer) -> void:

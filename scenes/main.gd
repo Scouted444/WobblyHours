@@ -20,6 +20,8 @@ var menu: Control
 var status: Label
 var name_edit: LineEdit
 var ip_edit: LineEdit
+var lan_box: VBoxContainer
+const LAST_JOIN := "user://last_join.txt"
 var world: GameWorld
 var _music: AudioStreamPlayer
 var _pause_layer: CanvasLayer
@@ -94,13 +96,22 @@ func _build_menu() -> void:
 	join_row.add_theme_constant_override("separation", 8)
 	box.add_child(join_row)
 	ip_edit = LineEdit.new()
-	ip_edit.placeholder_text = "Host IP (e.g. 25.34.12.7)"
-	ip_edit.text = "127.0.0.1"
+	ip_edit.placeholder_text = "Paste an invite code (ABCDE-FGHIJ) or an IP"
+	ip_edit.tooltip_text = "The host gets an invite code when they host (shown in game and in the pause menu).\nPlain IP addresses work too (LAN, Radmin, Hamachi...)."
+	if FileAccess.file_exists(LAST_JOIN):
+		ip_edit.text = FileAccess.get_file_as_string(LAST_JOIN).strip_edges()
 	ip_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ip_edit.text_submitted.connect(func(_t: String): _on_join())
 	join_row.add_child(ip_edit)
 	var join_btn := _btn("JOIN", _on_join, Color(0.4, 0.8, 1.0))
 	join_btn.custom_minimum_size = Vector2(140, 0)
 	join_row.add_child(join_btn)
+	# parties on the same network (found automatically)
+	lan_box = VBoxContainer.new()
+	lan_box.add_theme_constant_override("separation", 4)
+	box.add_child(lan_box)
+	Net.link.lan_games_changed.connect(_refresh_lan)
+	Net.link.listen_lan()
 
 	var row := GridContainer.new()
 	row.columns = 2
@@ -182,39 +193,86 @@ func _update_music_volume() -> void:
 func _on_host() -> void:
 	Net.my_name = _clean_name()
 	if Net.host():
+		Net.link.stop_listening()
 		_start_world()
 	else:
 		status.text = "Could not host (is the port already in use?)"
 
 func _on_join() -> void:
-	Net.my_name = _clean_name()
-	if Net.join(ip_edit.text):
-		_start_world()  # world must exist on the client before the server's spawns arrive
-		_watch_connection(ip_edit.text.strip_edges())
-	else:
-		status.text = "Enter a valid host IP"
+	_join_text(ip_edit.text)
 
-## Shows "Connecting..." over the (camera-less) world and gives up after 10 seconds.
-func _watch_connection(ip: String) -> void:
+func _join_text(text: String) -> void:
+	var cands := Invite.candidates(text, Net.PORT)
+	if cands.is_empty():
+		status.text = "That doesn't look like an invite code or an IP address"
+		return
+	var f := FileAccess.open(LAST_JOIN, FileAccess.WRITE)
+	if f != null:
+		f.store_string(text.strip_edges())
+	Net.my_name = _clean_name()
+	Net.link.stop_listening()
+	_start_world()  # world must exist on the client before the server's spawns arrive
+	_try_addresses(cands)
+
+## Tries each address from the invite in turn (IPv6, the internet address, the home-network one),
+## a few seconds each, over the (camera-less) world. Gives up with advice if none answer.
+func _try_addresses(cands: Array) -> void:
 	var note := Label.new()
-	note.text = "Connecting to %s ...\n(host needs UDP port %d open; with Hamachi allow Godot through the Windows firewall on Public networks)" % [ip, Net.PORT]
 	note.position = Vector2(14, 200)
 	note.add_theme_font_size_override("font_size", 22)
 	note.add_theme_color_override("font_outline_color", Color.BLACK)
 	note.add_theme_constant_override("outline_size", 8)
 	layer.add_child(note)
 	var world_ref := world
-	for i in 20:
-		await get_tree().create_timer(0.5).timeout
-		if world != world_ref or world == null:
-			break  # left or got disconnected meanwhile
-		if Net.players.has(multiplayer.get_unique_id()):
-			break  # in!
+	var joined := false
+	Net.quiet_fail = true
+	for ci in cands.size():
+		var c: Dictionary = cands[ci]
+		var shown := str(c["host"]) if not str(c["host"]).contains(":") else "[" + str(c["host"]) + "]"
+		note.text = "Connecting to %s:%d ...  (%d of %d)" % [shown, int(c["port"]), ci + 1, cands.size()]
+		if not Net.join(str(c["host"]), int(c["port"])):
+			continue
+		var wait := 12 if cands.size() == 1 else 8
+		for i in wait:
+			await get_tree().create_timer(0.5).timeout
+			if world != world_ref or world == null:
+				break
+			if Net.players.has(multiplayer.get_unique_id()):
+				joined = true
+				break
+			var peer := multiplayer.multiplayer_peer
+			if peer == null or peer.get_connection_status() == MultiplayerPeer.CONNECTION_DISCONNECTED:
+				break
+		if joined or world != world_ref or world == null:
+			break
+		if multiplayer.multiplayer_peer != null:
+			multiplayer.multiplayer_peer.close()
+		multiplayer.multiplayer_peer = null
+	Net.quiet_fail = false
 	if is_instance_valid(note):
 		note.queue_free()
-	if world == world_ref and world != null and not Net.players.has(multiplayer.get_unique_id()):
+	if world == world_ref and world != null and not joined:
 		Net.leave()
-		_teardown("Could not reach %s. Check the IP, that the host is running, and the firewall (UDP %d)." % [ip, Net.PORT])
+		_teardown("Couldn't reach that party. Make sure the code is right and the host is still in the game. " +
+			"If it keeps failing, the host's router may not have opened the port: the host's pause menu says what to do.")
+
+## The "on your network" list under the join box.
+func _refresh_lan() -> void:
+	if lan_box == null:
+		return
+	for c in lan_box.get_children():
+		c.queue_free()
+	if Net.link.lan_games.is_empty():
+		return
+	var head := Label.new()
+	head.text = "Parties on your network:"
+	head.add_theme_color_override("font_color", Color(0.75, 0.95, 1.0))
+	lan_box.add_child(head)
+	for ip in Net.link.lan_games:
+		var g: Dictionary = Net.link.lan_games[ip]
+		var b := _btn("JOIN  %s  (%d player%s)" % [g["name"], g["players"], "" if int(g["players"]) == 1 else "s"],
+			_join_text.bind("%s:%d" % [ip, int(g["port"])]), Color(0.55, 0.95, 0.75))
+		lan_box.add_child(b)
 
 func _clean_name() -> String:
 	var n := name_edit.text.strip_edges()
@@ -238,6 +296,7 @@ func _teardown(message: String) -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	menu.show()
 	status.text = message
+	Net.link.listen_lan()
 	if _music != null and _music.stream != null:
 		_music.play()
 

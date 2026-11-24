@@ -562,6 +562,44 @@ func _build_hud() -> void:
 	_money_label.offset_top = 10
 	_money_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	layer.add_child(_money_label)
+	if multiplayer.is_server():
+		_invite_banner(layer)
+
+## Host: show the invite code for a while after hosting (and copy it, ready to paste to friends).
+func _invite_banner(layer: CanvasLayer) -> void:
+	var l := Label.new()
+	l.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	l.offset_left = -500
+	l.offset_right = 500
+	l.offset_top = -120
+	l.offset_bottom = -70
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", 22)
+	l.add_theme_color_override("font_color", Color(0.6, 1.0, 0.75))
+	l.add_theme_color_override("font_outline_color", Color.BLACK)
+	l.add_theme_constant_override("outline_size", 8)
+	layer.add_child(l)
+	var link := Net.link
+	var copied := [false]
+	var show := func():
+		if not is_instance_valid(l):
+			return
+		if link.invite_short == "":
+			l.text = "Setting up your party for friends..."
+			return
+		if not copied[0] and link.public_v4 != "":
+			copied[0] = true
+			DisplayServer.clipboard_set(link.invite_full)
+		l.text = "Invite code: %s%s   (Esc for details)\n%s" % [link.invite_short, "  - copied!" if copied[0] else "",
+			"Router port opened - friends can join with the code" if link.router_ok else link.router_msg]
+	show.call()
+	link.host_info_changed.connect(show)
+	tree_exiting.connect(func():
+		if link.host_info_changed.is_connected(show):
+			link.host_info_changed.disconnect(show))
+	var tw := l.create_tween()
+	tw.tween_interval(35.0)
+	tw.tween_property(l, "modulate:a", 0.0, 2.0)
 
 # ----------------------------------------------------------- shots + menu
 ## Tracer line and impact spark for a gunshot (everyone sees it).
