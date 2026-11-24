@@ -278,6 +278,10 @@ func _report_town() -> void:
 			if p.linear_velocity.length() > 2.0:
 				moving += 1
 	_log("townspeople %d (%d walking), traffic %d (%d moving)" % [res, walking, ai, moving])
+	for n3 in get_tree().get_nodes_in_group("props"):
+		var c := n3 as Prop
+		if c != null and c.driver_seed != 0 and c.linear_velocity.length() <= 2.0:
+			_log("  stopped %s at %s: hp %d spin %.1f up %.2f blocked %.1f route %s" % [c.kind, c.global_position.round(), c.car_hp, c._spin_t, c.global_basis.y.y, c._ai_block_t, str(c.ai_route)])
 
 
 ## Car seats: where a seated driver's head, hands, knees and feet end up, in car space.
@@ -330,8 +334,8 @@ func _ragdoll_test() -> void:
 
 
 func _crash_test() -> void:
-	var a := world.spawn_car("sedan", Vector3(112.0, 0.0, -7.0), -PI * 0.5)
-	var b := world.spawn_car("truck", Vector3(128.0, 0.0, -7.0), PI * 0.5)
+	var a := world.spawn_car("sedan", Vector3(128.0, 0.0, -7.0), -PI * 0.5)
+	var b := world.spawn_car("truck", Vector3(144.0, 0.0, -7.0), PI * 0.5)
 	b.has_alarm = true
 	await _wait(0.6)
 	a.linear_velocity = Vector3(24.0, 0.0, 0.0)
