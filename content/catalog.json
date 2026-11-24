@@ -1,0 +1,23 @@
+[
+  {
+    "name": "Cesium Man",
+    "kind": "characters",
+    "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/refs/heads/main/Models/CesiumMan/glTF-Binary/CesiumMan.glb",
+    "author": "Cesium",
+    "license": "CC BY 3.0 - credit Cesium"
+  },
+  {
+    "name": "Rigged Figure",
+    "kind": "characters",
+    "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/refs/heads/main/Models/RiggedFigure/glTF-Binary/RiggedFigure.glb",
+    "author": "Cesium",
+    "license": "CC BY 4.0 - credit Cesium"
+  },
+  {
+    "name": "Virtual City",
+    "kind": "maps",
+    "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/refs/heads/main/Models/VirtualCity/glTF-Binary/VirtualCity.glb",
+    "author": "3DRT",
+    "license": "License not stated by Khronos - fine for testing, check before sharing"
+  }
+]

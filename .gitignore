@@ -1,0 +1,8 @@
+.godot/
+export/
+release/
+launcher/.godot/
+launcher/export/
+*.import
+__pycache__/
+release_repo.txt

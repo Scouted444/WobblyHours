@@ -1,0 +1,96 @@
+# Builds the game and the launcher for Windows and publishes a GitHub release, automatically,
+# whenever version.txt changes on main (or when started by hand from the Actions tab).
+# Every launcher points at releases/latest/download/latest.json, so players get the update by itself.
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    paths: [version.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: "4.3"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: ver
+        run: |
+          V=$(head -n1 version.txt | cut -d' ' -f1 | tr -d '\r')
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if gh release view "v$V" >/dev/null 2>&1; then echo "exists=yes" >> "$GITHUB_OUTPUT"; else echo "exists=no" >> "$GITHUB_OUTPUT"; fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Install Godot and export templates
+        if: steps.ver.outputs.exists == 'no'
+        run: |
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          wget -q "$base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          wget -q "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q "Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          sudo mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          unzip -q "Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          mv templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+          rm -rf templates *.zip *.tpz
+
+      - name: Export the game
+        if: steps.ver.outputs.exists == 'no'
+        run: |
+          mkdir -p export
+          timeout 600 godot --headless --editor --quit || true          # first run imports models, textures, scripts
+          godot --headless --export-release "Windows Desktop" export/WobblyHours.exe
+          test -f export/WobblyHours.exe && test -f export/WobblyHours.pck
+          cp version.txt export/
+
+      - name: Export the launcher
+        if: steps.ver.outputs.exists == 'no'
+        working-directory: launcher
+        run: |
+          mkdir -p export
+          timeout 300 godot --headless --editor --quit || true
+          godot --headless --export-release "Windows Desktop" export/WobblyLauncher.exe
+          test -f export/WobblyLauncher.exe
+
+      - name: Pack the downloads
+        if: steps.ver.outputs.exists == 'no'
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          REPO="${{ github.repository }}"
+          BASE="https://github.com/${REPO}/releases/latest/download"
+          mkdir -p release
+          (cd export && zip -qr ../release/WobblyHours_windows.zip .)
+          PKG="Wobbly Hours"
+          mkdir -p "$PKG/game"
+          cp launcher/export/WobblyLauncher.exe "$PKG/"
+          cp -r export/* "$PKG/game/"
+          printf '{\n\t"url": "%s/latest.json"\n}\n' "$BASE" > "$PKG/launcher.json"
+          zip -qr release/WobblyHours_with_launcher.zip "$PKG"
+          git archive --format=zip --prefix=wobbly_hours/ -o release/wobbly_hours_project.zip HEAD
+          NOTES=$(git log -1 --pretty=%s)
+          python3 - "$V" "$NOTES" "$BASE" <<'PY'
+          import json, sys
+          v, notes, base = sys.argv[1:4]
+          json.dump({"version": v, "notes": notes,
+                     "windows": base + "/WobblyHours_windows.zip",
+                     "project": base + "/wobbly_hours_project.zip"},
+                    open("release/latest.json", "w"), indent=2)
+          PY
+          ls -la release
+
+      - name: Publish the release
+        if: steps.ver.outputs.exists == 'no'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          gh release create "v$V" release/* --title "Wobbly Hours $V" --notes "$(git log -1 --pretty=%B)" --latest

@@ -1,0 +1,5 @@
+chmaker_male.glb / chmaker_female.glb
+"Low Poly Character Maker for Godot" by Fernando Lopez (2022)
+https://github.com/fernandolv33/lowpoly-chmaker
+License: Creative Commons CC-BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+Changes: used the models unmodified; the character editor was re-written for Godot 4 (scenes/player/npc_look.gd, npc_body.gd, customizer.gd).

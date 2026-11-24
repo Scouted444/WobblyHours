@@ -1,0 +1,20 @@
+; Wobbly Hours Launcher: a tiny separate program that keeps the game up to date and starts it.
+; Open this folder as its own project in Godot 4.3+, then Project > Export > Windows Desktop.
+
+config_version=5
+
+[application]
+
+config/name="Wobbly Hours Launcher"
+run/main_scene="res://launcher.tscn"
+config/features=PackedStringArray("4.3", "Mobile")
+
+[display]
+
+window/size/viewport_width=760
+window/size/viewport_height=520
+window/size/resizable=false
+
+[rendering]
+
+renderer/rendering_method="mobile"
