@@ -101,7 +101,8 @@ var carrier := 0           # (victim side) peer id carrying me while I am knocke
 var carrying := 0          # (holder side) peer id of the knocked-out player I hold above my head
 var _ride: Prop            # the rocket I am riding
 var _seat := false         # true = I am sitting IN the shopping cart (someone else pushes)
-var _ride_stash := []      # [kind, tint] of what I was holding when I got into a vehicle (given back after)
+var _ride_stash := []
+var _wheel_turn := 0.0      # [kind, tint] of what I was holding when I got into a vehicle (given back after)
 var _equip_anim := 1.0
 var _cig_t := -1.0          # seconds into the "raise the cigarette to my mouth" animation (-1 = not smoking)
 var _cig_puffed := false
@@ -541,7 +542,13 @@ func _update_camera(delta: float) -> void:
 			head.top_level = false
 		head.rotation = Vector3(pitch, 0.0, 0.0)
 		var eye := EYE * (0.55 if (_ride != null and (_ride.kind == "coupe" or _seat)) else 1.0)   # ducked under the toy car roof / in the cart
-		head.position = Vector3(cos(_bob_t * 0.5) * amp * 0.5, eye + sin(_bob_t) * amp - _land_dip, -0.12 if (_ride != null and _ride.kind == "coupe") else 0.0)
+		var head_z := 0.0
+		if _ride != null and is_instance_valid(_ride):
+			if _ride.kind == "coupe":
+				head_z = -0.12
+			elif Prop.is_car(_ride.kind):
+				head_z = 0.1   # sitting back in the seat, not with my nose on the steering wheel
+		head.position = Vector3(cos(_bob_t * 0.5) * amp * 0.5, eye + sin(_bob_t) * amp - _land_dip, head_z)
 
 	_land_dip = move_toward(_land_dip, 0.0, delta * 1.2)
 	var sprinting := Input.is_action_pressed("sprint") and spd > 5.5
@@ -667,6 +674,25 @@ func _update_viewmodel(delta: float, spd: float, amp: float, wall_push: float) -
 				var fh := Grips.free_hand(side, c + Vector3(float(side) * reach, -0.02, 0.12), Vector3(10.0, 28.0, 0.0))
 				busy[idx2] = true
 				_set_hand(idx2, "carry", fh["wrist"] as Vector3, fh["basis"] as Basis, CURL_CARRY, [25.0, 20.0], delta)
+	if _ride != null and is_instance_valid(_ride) and Prop.is_car(_ride.kind):
+		# both hands on the steering wheel, at ten to two, turning with the steering
+		var spec: Dictionary = Prop.CARS[_ride.kind]
+		var seat_at: Vector3 = spec["seat"]
+		var ik: Dictionary = spec["ik"]
+		var hand: Vector2 = ik["hand"]
+		var centre_car := seat_at + Vector3(0.0, hand.y, -hand.x)
+		var tilt := Basis(Vector3.RIGHT, deg_to_rad(65.0))   # the wheel leans back like the model's
+		var steer := Input.get_axis("move_left", "move_right") if not input_locked else 0.0
+		_wheel_turn = lerpf(_wheel_turn, steer * 0.9, 1.0 - exp(-8.0 * delta))
+		var to_cam := camera.global_transform.affine_inverse() * _ride.global_transform
+		for i4 in 2:
+			var s4 := 1 if i4 == 1 else -1
+			var ang := 1.05 * float(s4) + _wheel_turn   # 0 = top of the wheel
+			var rim := centre_car + tilt * Vector3(sin(ang) * 0.17, 0.0, -cos(ang) * 0.17)
+			var wpos := to_cam * rim
+			var fw := Grips.free_hand(s4, wpos + Vector3(0.0, -0.03, 0.06), Vector3(20.0, 6.0, -70.0 * float(s4)))
+			busy[i4] = true
+			_set_hand(i4, "wheel", fw["wrist"] as Vector3, fw["basis"] as Basis, [[75.0, 85.0, 60.0], [75.0, 85.0, 60.0], [75.0, 85.0, 60.0], [75.0, 85.0, 60.0]], [45.0, 30.0], delta)
 	if _ride != null and is_instance_valid(_ride) and _ride.kind == "cart":
 		# both hands on the trolley handle, palms down
 		for i3 in 2:
@@ -696,6 +722,13 @@ func _third_person_cam() -> void:
 	var desired := focus + look.z * 3.3 + look.x * 0.45 + Vector3.UP * 0.25
 	var q := PhysicsRayQueryParameters3D.create(focus, desired, 1)
 	q.exclude = [get_rid()]
+	if _ride != null and is_instance_valid(_ride):
+		q.exclude = [get_rid(), _ride.get_rid()]   # the car I'm sitting in isn't a wall
+		if Prop.is_car(_ride.kind):
+			focus = _ride.global_position + Vector3.UP * 1.0
+			desired = focus + look.z * 6.5 + Vector3.UP * 1.2   # further back: cars are big
+			q.from = focus
+			q.to = desired
 	var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(q)
 	var cam_pos := desired
 	if not hit.is_empty():
@@ -1267,6 +1300,17 @@ func stop_ride() -> void:
 	velocity = Vector3(0.0, 2.0, 0.0)
 	_unstash()
 
+## Seat targets for my body when I'm in a car (whoever's machine is drawing me).
+func _car_ik() -> Dictionary:
+	var v: Prop = null
+	if _ride != null and is_instance_valid(_ride):
+		v = _ride
+	elif ride_name != "" and _world != null:
+		v = _world.get_node_or_null(ride_name) as Prop
+	if v != null and Prop.is_car(v.kind):
+		return Prop.CARS[v.kind]["ik"]
+	return {}
+
 ## Where you climb out of a car: beside the driver's door.
 static func _car_door(car: Prop) -> Vector3:
 	var size: Vector3 = Prop.CARS[car.kind]["size"]
@@ -1750,6 +1794,8 @@ func _custom_apply(mine: bool) -> void:
 		if st == 5:   # pushing a cart: walk with both hands out on the handle
 			nb.set_pose(0, 2)
 		else:
+			if st == 6:
+				nb.seat_ik = _car_ik()
 			nb.set_pose(st, hold)
 		nb.scale = Vector3.ONE   # full size even in the toy car: that is the joke
 	_custom.visible = show_custom

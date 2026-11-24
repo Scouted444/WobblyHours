@@ -197,6 +197,9 @@ func _play(name_suffix: String) -> void:
 	_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
 	_anim.play(n, 0.15)
 
+## Car seat targets (prop.gd CARS "ik"): {foot: Vector2(forward, height), hand: Vector2, recline}.
+var seat_ik := {}
+
 ## World-space transforms of the 10 ragdoll parts (PlayerRig order), or [] when standing.
 func set_ragdoll(parts: Array) -> void:
 	_rag = parts
@@ -392,6 +395,49 @@ func _process(delta: float) -> void:
 ## them, so nothing rewrites them between frames: put them back to rest first or the turns pile up
 ## (that was the head slowly spinning / tipping over).
 const RELATIVE_BONES := ["Spine", "SpineUpper", "Neck", "Head", "Foot.L", "Foot.R"]
+## Two-bone IK: bend b1 -> b2 -> b3 so the end of b2 (where b3 starts) reaches `target`, with the
+## middle joint (knee / elbow) bending towards `pole`. Returns the two applied rotations.
+func _ik2(b1: String, b2: String, b3: String, target: Vector3, pole: Vector3, w: float) -> Array:
+	var i1 := int(_bone.get(b1, -1))
+	var i2 := int(_bone.get(b2, -1))
+	var i3 := int(_bone.get(b3, -1))
+	if i1 < 0 or i2 < 0 or i3 < 0 or _sk == null:
+		return [Quaternion(), Quaternion()]
+	var skg := _sk.global_transform
+	var p1 := (skg * _sk.get_bone_global_pose(i1)).origin
+	var p2 := (skg * _sk.get_bone_global_pose(i2)).origin
+	var p3 := (skg * _sk.get_bone_global_pose(i3)).origin
+	var l1 := p1.distance_to(p2)
+	var l2 := p2.distance_to(p3)
+	if l1 < 0.01 or l2 < 0.01:
+		return [Quaternion(), Quaternion()]
+	var t := target - p1
+	var r := clampf(t.length(), absf(l1 - l2) + 0.01, (l1 + l2) * 0.999)
+	var n := t.normalized()
+	var pp := pole - n * pole.dot(n)
+	if pp.length() < 0.001:
+		pp = Vector3.UP
+	pp = pp.normalized()
+	var a := acos(clampf((l1 * l1 + r * r - l2 * l2) / (2.0 * l1 * r), -1.0, 1.0))
+	var d1 := (n * cos(a) + pp * sin(a)).normalized()
+	var mid := p1 + d1 * l1
+	var d2 := (p1 + n * r - mid).normalized()
+	var q1 := _aim(b1, b2, d1, w)
+	var q2 := _aim(b2, b3, d2, w)
+	return [q1, q2]
+
+## How high the hip joints are above my feet when standing (the model's own proportions).
+var _thigh_cache := -1.0
+func _thigh_h() -> float:
+	if _thigh_cache > 0.0:
+		return _thigh_cache
+	var b := int(_bone.get("Thigh.L", -1))
+	if b < 0 or _sk == null:
+		return 1.0
+	var p := _holder.global_transform.affine_inverse() * (_sk.global_transform * _sk.get_bone_global_rest(b).origin)
+	_thigh_cache = clampf(p.y, 0.6, 1.3)
+	return _thigh_cache
+
 func _reset_relative() -> void:
 	for n in RELATIVE_BONES:
 		var b := int(_bone.get(n, -1))
@@ -554,8 +600,23 @@ func _pose_step(delta: float) -> void:
 	_turn("SpineUpper", bend_ax, top_bend)
 	_turn("SpineUpper", side_ax, -sway_s * 0.5 * w)
 	_turn("Neck", bend_ax, neck_bend)
+	var car_seat := _state == 6 and not seat_ik.is_empty()
+	if car_seat:
+		# sit back in the seat (but keep the eyes on the road), hips at the height the car was built for
+		var rc := float(seat_ik.get("recline", 0.18)) * w
+		_turn("Spine", bend_ax, -rc)
+		_turn("Neck", bend_ax, rc * 0.7)
+		_holder.position.y += (1.0 - _thigh_h()) * w
 	var ko_s := _smooth("ko", knee_out, k)
-	if true:
+	if car_seat:
+		# feet on the pedals (two-bone IK: knees come up as far as they need to)
+		var foot: Vector2 = seat_ik.get("foot", Vector2(0.8, 0.78))
+		for side in [1, -1]:
+			var sf: String = "L" if side == 1 else "R"
+			var tgt := global_transform * Vector3(-0.12 * float(side), foot.y, -foot.x)
+			var qs := _ik2("Thigh." + sf, "Leg." + sf, "Foot." + sf, tgt, global_basis * Vector3(0, 1, -1), w)
+			_level("Foot." + sf, (qs[1] as Quaternion) * (qs[0] as Quaternion), w * 0.9)
+	else:
 		for side in [1, -1]:
 			var sfx: String = "L" if side == 1 else "R"
 			var th: float = tl_s if side == 1 else tr_s
@@ -566,12 +627,20 @@ func _pose_step(delta: float) -> void:
 			var q2 := _aim("Leg." + sfx, "Foot." + sfx, d2, w)
 			_level("Foot." + sfx, q2 * q1, w * 0.9)
 	# arms
-	for side in [1, -1]:
-		var sfx2: String = "L" if side == 1 else "R"
-		var ua: float = al_s if side == 1 else ar_s
-		var ea: float = el_s if side == 1 else er_s
-		var outv := left * float(side) * out_s
-		var d3 := (-up * cos(ua) + fwd * sin(ua) + outv).normalized()
-		_aim("UpperArm." + sfx2, "LowerArm." + sfx2, d3, w)
-		var d4 := (-up * cos(ua + ea) + fwd * sin(ua + ea) + outv * 0.5).normalized()
-		_aim("LowerArm." + sfx2, "Fingers." + sfx2, d4, w)
+	if car_seat:
+		# both hands on the steering wheel
+		var hand: Vector2 = seat_ik.get("hand", Vector2(0.44, 1.44))
+		for side in [1, -1]:
+			var sh: String = "L" if side == 1 else "R"
+			var tg := global_transform * Vector3(-0.17 * float(side), hand.y, -hand.x)
+			_ik2("UpperArm." + sh, "LowerArm." + sh, "Fingers." + sh, tg, global_basis * Vector3(-0.6 * float(side), -1.0, 0.0), w)
+	else:
+		for side in [1, -1]:
+			var sfx2: String = "L" if side == 1 else "R"
+			var ua: float = al_s if side == 1 else ar_s
+			var ea: float = el_s if side == 1 else er_s
+			var outv := left * float(side) * out_s
+			var d3 := (-up * cos(ua) + fwd * sin(ua) + outv).normalized()
+			_aim("UpperArm." + sfx2, "LowerArm." + sfx2, d3, w)
+			var d4 := (-up * cos(ua + ea) + fwd * sin(ua + ea) + outv * 0.5).normalized()
+			_aim("LowerArm." + sfx2, "Fingers." + sfx2, d4, w)

@@ -30,11 +30,16 @@ const DEFS := {
 ## Full-size cars: physics box, top speed / reverse (m/s), acceleration, turn rate, driver seat
 ## (where the driver's FEET go, car space: sitting means the feet end up below the seat).
 const CARS := {
-	"sedan":  {"size": Vector3(1.84, 1.45, 4.5), "top": 16.0, "rev": 5.0, "accel": 8.0, "turn": 1.5, "seat": Vector3(-0.4, -1.08, 0.3), "label": "sedan"},
-	"taxi":   {"size": Vector3(1.84, 1.45, 4.5), "top": 16.0, "rev": 5.0, "accel": 8.0, "turn": 1.5, "seat": Vector3(-0.4, -1.08, 0.3), "label": "taxi"},
-	"police": {"size": Vector3(1.84, 1.45, 4.6), "top": 19.0, "rev": 6.0, "accel": 10.0, "turn": 1.6, "seat": Vector3(-0.4, -1.08, 0.3), "label": "police car"},
-	"sports": {"size": Vector3(1.92, 1.18, 4.4), "top": 24.0, "rev": 6.0, "accel": 13.0, "turn": 1.75, "seat": Vector3(-0.4, -1.14, 0.6), "label": "sports car"},
-	"truck":  {"size": Vector3(2.0, 1.85, 5.3), "top": 13.0, "rev": 4.5, "accel": 6.0, "turn": 1.25, "seat": Vector3(-0.42, -1.2, -0.15), "label": "pickup truck"},
+	"sedan":  {"size": Vector3(1.84, 1.45, 4.5), "top": 16.0, "rev": 5.0, "accel": 8.0, "turn": 1.5, "seat": Vector3(-0.4, -1.205, 0.37), "label": "sedan",
+		"ik": {"foot": Vector2(0.8, 0.78), "hand": Vector2(0.44, 1.44), "recline": 0.2}},
+	"taxi":   {"size": Vector3(1.84, 1.45, 4.5), "top": 16.0, "rev": 5.0, "accel": 8.0, "turn": 1.5, "seat": Vector3(-0.4, -1.205, 0.37), "label": "taxi",
+		"ik": {"foot": Vector2(0.8, 0.78), "hand": Vector2(0.44, 1.44), "recline": 0.2}},
+	"police": {"size": Vector3(1.84, 1.45, 4.6), "top": 19.0, "rev": 6.0, "accel": 10.0, "turn": 1.6, "seat": Vector3(-0.4, -1.205, 0.37), "label": "police car",
+		"ik": {"foot": Vector2(0.8, 0.78), "hand": Vector2(0.44, 1.44), "recline": 0.2}},
+	"sports": {"size": Vector3(1.92, 1.26, 4.4), "top": 24.0, "rev": 6.0, "accel": 13.0, "turn": 1.75, "seat": Vector3(-0.4, -1.25, 0.67), "label": "sports car",
+		"ik": {"foot": Vector2(0.85, 0.86), "hand": Vector2(0.44, 1.44), "recline": 0.32}},
+	"truck":  {"size": Vector3(2.0, 1.85, 5.3), "top": 13.0, "rev": 4.5, "accel": 6.0, "turn": 1.25, "seat": Vector3(-0.4, -1.205, -0.08), "label": "pickup truck",
+		"ik": {"foot": Vector2(0.75, 0.76), "hand": Vector2(0.44, 1.5), "recline": 0.18}},
 }
 const CAR_COLORS := ["2b5fb4", "b42b2b", "e8e8e8", "222428", "3d7a45", "c9a227", "7a3db4", "d96c1a", "8a9099", "1f8a8a"]
 
@@ -1073,6 +1078,7 @@ func _update_driver() -> void:
 		_driver_body = null
 		return
 	_driver_body.position = CARS[kind]["seat"]
+	_driver_body.seat_ik = CARS[kind]["ik"]
 	_driver_body.set_pose(6, 0)
 	_driver_body.animate(0.0, false)
 

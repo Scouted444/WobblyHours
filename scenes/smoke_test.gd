@@ -41,6 +41,8 @@ func _go() -> void:
 	await _wait(2.0)
 	_check_layout()
 	_report_town()
+	await _seat_report()
+	await _ragdoll_test()
 
 	# --- spawn one of everything next to me
 	_log("spawning")
@@ -272,3 +274,52 @@ func _report_town() -> void:
 			if p.linear_velocity.length() > 2.0:
 				moving += 1
 	_log("townspeople %d (%d walking), traffic %d (%d moving)" % [res, walking, ai, moving])
+
+
+## Car seats: where a seated driver's head, hands, knees and feet end up, in car space.
+func _seat_report() -> void:
+	var cars := {}
+	var i := 0
+	for kind in Prop.CARS:
+		var c := world.spawn_car(String(kind), Vector3(110.0 + i * 9.0, 0.0, -7.0), PI * 0.5, 4242 + i)
+		cars[kind] = c
+		i += 1
+	await _wait(1.5)
+	for kind2 in cars:
+		var c2: Prop = cars[kind2]
+		var nb := c2._driver_body
+		if nb == null or nb._sk == null:
+			_log("seat %s: no driver body" % kind2)
+			continue
+		var inv := c2.global_transform.affine_inverse()
+		var parts := []
+		for bn in ["Head", "Thigh.L", "Leg.L", "Foot.L", "Foot.R", "Fingers.L", "Fingers.R"]:
+			var b := int(nb._bone.get(bn, -1))
+			if b < 0:
+				continue
+			var wp: Vector3 = (nb._sk.global_transform * nb._sk.get_bone_global_pose(b)).origin
+			var lp := inv * wp
+			parts.append("%s(%.2f %.2f %.2f)" % [bn, lp.x, lp.y, lp.z])
+		_log("seat %s: %s" % [kind2, " ".join(parts)])
+		c2.queue_free()
+	await _wait(0.3)
+
+func _ragdoll_test() -> void:
+	var npc: Npc = null
+	for n in get_tree().get_nodes_in_group("residents"):
+		if not (n as Npc).dead:
+			npc = n
+			break
+	if npc == null:
+		_log("ragdoll: nobody to test on")
+		return
+	npc.damage(15, Vector3(8, 3, 0), 0)
+	await _wait(0.5)
+	_log("ragdoll: knocked=%s pose=%d" % [npc._ragdoll != null and npc._ragdoll.active, npc.rag_pose.size()])
+	await _wait(5.0)
+	if is_instance_valid(npc):
+		_log("ragdoll: got up=%s hp=%d" % [npc.rag_pose.is_empty(), npc.hp])
+		npc.damage(999, Vector3(3, 2, 0), 0)
+		await _wait(4.0)
+		if is_instance_valid(npc):
+			_log("ragdoll: dead=%s frozen=%s" % [npc.dead, npc._ragdoll != null and npc._ragdoll.active and npc._ragdoll.torso().freeze])

@@ -59,6 +59,14 @@ var _face := Vector3.ZERO
 var grudge := {}            # peer id -> how annoyed I am (0..)
 var _say_cd := 0.0
 var _vis_t := 0.0
+# ragdoll: the server simulates it and sends the part poses (rag_pose, empty when standing)
+var rag_pose := PackedFloat32Array()   # synced
+var _rig: PlayerRig
+var _ragdoll: PlayerRagdoll
+var _rag_t := 0.0
+var _still_t := 0.0
+var _rag_shown := false
+const TORSO_Y := 1.22
 
 func _ready() -> void:
 	add_to_group("npcs")
@@ -84,7 +92,7 @@ func _ready() -> void:
 	for path_p in [^".:position", ^".:rotation"]:
 		cfg.add_property(path_p)
 		cfg.property_set_replication_mode(path_p, SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
-	for path2 in [^".:dead", ^".:move_speed", ^".:severed", ^".:act"]:
+	for path2 in [^".:dead", ^".:move_speed", ^".:severed", ^".:act", ^".:rag_pose"]:
 		cfg.add_property(path2)
 		cfg.property_set_replication_mode(path2, SceneReplicationConfig.REPLICATION_MODE_ON_CHANGE)
 	var sync := MultiplayerSynchronizer.new()
@@ -122,12 +130,21 @@ func _server_step(delta: float) -> void:
 		return
 	if dead:
 		_dead_t += delta
-		velocity.x = move_toward(velocity.x, 0.0, 8.0 * delta)
-		velocity.z = move_toward(velocity.z, 0.0, 8.0 * delta)
-		velocity.y -= GRAVITY * delta
-		move_and_slide()
+		if _ragdoll != null and _ragdoll.active:
+			_rag_step(delta)
+		else:
+			velocity.x = move_toward(velocity.x, 0.0, 8.0 * delta)
+			velocity.z = move_toward(velocity.z, 0.0, 8.0 * delta)
+			velocity.y -= GRAVITY * delta
+			move_and_slide()
 		if _dead_t > 25.0:
 			queue_free()
+		return
+	if _ragdoll != null and _ragdoll.active:
+		_rag_step(delta)
+		# lying there for a bit, then get back up once the body has stopped moving
+		if _rag_t > 2.2 and _ragdoll.torso().linear_velocity.length() < 1.2:
+			_get_up()
 		return
 	if severed != 0:
 		_regrow_t += delta
@@ -290,15 +307,21 @@ func _nearest_player(world: GameWorld, radius: float) -> int:
 func _animate() -> void:
 	if _body == null:
 		return
+	if rag_pose.size() >= PlayerRig.N * 7 or (_ragdoll != null and _ragdoll.active):
+		_show_ragdoll()
+		_body.set_severed(severed)
+		_body.animate(0.0, false)
+		return
+	if _rag_shown:
+		_rag_shown = false
+		_body.set_ragdoll([])
+		_body.top_level = false
+		_body.position = Vector3.ZERO
+		_body.rotation = Vector3.ZERO
 	if dead:
-		if not _fell:
+		if not _fell:   # the ragdoll poses are on their way from the host
 			_fell = true
 			collision_layer = 0
-			_body.set_pose(1, 0)   # arms flung out as they go down
-			var tw := create_tween()
-			var side := -1.0 if (look_seed % 2) == 0 else 1.0
-			tw.tween_property(_body, "rotation:x", side * PI * 0.5, 0.55).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
-			tw.tween_callback(func(): _body.set_pose(0, 0))
 		_body.animate(0.0, false)
 		_body.set_severed(severed)
 		return
@@ -313,6 +336,92 @@ func _animate() -> void:
 		_:
 			_body.set_pose(0, 0)
 	_body.animate(move_speed, false)
+
+# ------------------------------------------------------------------ ragdoll
+## The invisible stick-figure the ragdoll is built on / that the body follows.
+func _ensure_rig() -> void:
+	if _rig != null:
+		return
+	_rig = PlayerRig.new()
+	_rig.visible = false
+	add_child(_rig)
+	_rig.setup(look_seed)
+	_rig.visible = false
+
+## Server: go floppy (hit by a car, blown up, shoved hard, or dead).
+func knock_down(vel: Vector3) -> void:
+	if not multiplayer.is_server() or not is_inside_tree():
+		return
+	if _ragdoll != null and _ragdoll.active:
+		_ragdoll.add_velocity(vel.limit_length(10.0))
+		_rag_t = minf(_rag_t, 1.0)
+		return
+	_ensure_rig()
+	_rig.apply_standing(global_transform, _rig.stand_pose(0.0, clampf(move_speed / 6.0, 0.0, 1.0), 0.0, 0.0, 0.0))
+	if _ragdoll == null:
+		_ragdoll = PlayerRagdoll.new()
+		add_child(_ragdoll)
+	_ragdoll.spawn(_rig, velocity + vel.limit_length(11.0), self)
+	_rag_t = 0.0
+	_still_t = 0.0
+	collision_layer = 0
+	act = ACT_NONE
+	hostile = 0 if not troublemaker else hostile
+	rag_pose = PlayerRig.encode(_ragdoll.bodies)
+
+func _rag_step(delta: float) -> void:
+	_rag_t += delta
+	var world := get_tree().get_first_node_in_group("world") as GameWorld
+	if world != null:
+		_ragdoll.step(world)
+	var t := _ragdoll.torso()
+	global_position = t.global_position - Vector3(0.0, TORSO_Y, 0.0)
+	if dead:
+		# settled: freeze the body where it lies and stop sending it
+		if t.linear_velocity.length() < 0.2:
+			_still_t += delta
+			if _still_t > 1.5 and not t.freeze:
+				for b in _ragdoll.bodies:
+					b.freeze = true
+				rag_pose = PlayerRig.encode(_ragdoll.bodies)
+				return
+		else:
+			_still_t = 0.0
+		if t.freeze:
+			return
+	if Engine.get_physics_frames() % 2 == 0:
+		rag_pose = PlayerRig.encode(_ragdoll.bodies)
+
+func _get_up() -> void:
+	var t := _ragdoll.torso().global_position
+	var q := PhysicsRayQueryParameters3D.create(t + Vector3.UP * 0.3, t + Vector3.DOWN * 4.0, 1)
+	q.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	var floor_y: float = (hit["position"] as Vector3).y if not hit.is_empty() else t.y - 1.0
+	_ragdoll.clear()
+	global_position = Vector3(t.x, floor_y + 0.05, t.z)
+	velocity = Vector3.ZERO
+	collision_layer = 1
+	rag_pose = PackedFloat32Array()
+	if randf() < 0.6:
+		_say_line(["Ow...", "What hit me?", "I'm okay! I'm okay.", "My back...", "Ugh."][randi() % 5])
+
+## Everyone: make the body follow the ragdoll (the server's own bodies, or the synced poses).
+func _show_ragdoll() -> void:
+	_ensure_rig()
+	var k := 1.0 - exp(-25.0 * get_physics_process_delta_time())
+	if _ragdoll != null and _ragdoll.active:
+		_rig.apply_bodies(_ragdoll.bodies)
+	elif not _rig.apply_encoded(rag_pose, k if _rag_shown else 1.0):
+		return
+	_rag_shown = true
+	var ts: Array = []
+	for part in _rig.parts:
+		ts.append(part.global_transform)
+	_body.set_ragdoll(ts)
+	_body.top_level = true
+	var torso: Transform3D = _rig.parts[PlayerRig.TORSO].global_transform
+	_body.global_transform = Transform3D(torso.basis.orthonormalized(), torso.origin) * Transform3D(Basis(), Vector3(0, -1.1, 0))
 
 # ------------------------------------------------------------------ talking
 ## Speech bubble over my head (with my name).
@@ -594,6 +703,9 @@ func damage(amount: int, push: Vector3, by := 0, at := Vector3.ZERO, blast := fa
 		dead = true
 		_dead_t = 0.0
 		collision_layer = 0   # the body stays on the ground, but people walk through it
+		knock_down(push + Vector3.UP * 1.5)
+	elif blast or push.length() > 7.0 or amount >= 40:
+		knock_down(push + Vector3.UP * 2.0)   # sent flying, gets back up in a bit
 	_hurt_fx.rpc(dead)
 	if world != null:
 		world.alarm(global_position, by, 1.0 if amount >= 10 or dead else 0.5, 22.0, self)
