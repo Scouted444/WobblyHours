@@ -43,6 +43,14 @@ jobs:
           mv templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
           rm -rf templates *.zip *.tpz
 
+      - name: Stamp the version into the game
+        if: steps.ver.outputs.exists == 'no'
+        run: |
+          # version.txt is the one place to bump: the in-game number (main menu, update checks) follows it
+          V="${{ steps.ver.outputs.version }}"
+          sed -i -E "s/^const VERSION := \".*\"/const VERSION := \"$V\"/" scenes/ui/game_version.gd
+          grep -n "const VERSION" scenes/ui/game_version.gd
+
       - name: Smoke test (no release if the game has script errors)
         if: steps.ver.outputs.exists == 'no'
         run: |
