@@ -1,7 +1,7 @@
 class_name GameVersion
 extends RefCounted
 ## The game's version (compiled in, so exported builds know it too). Bumped with every update.
-const VERSION := "1.34"
+const VERSION := "1.35"
 const DATE := "2026-11-23"
 
 ## Compare "1.23" style versions: >0 if a is newer than b.
