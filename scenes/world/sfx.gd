@@ -202,7 +202,7 @@ static func surface_at(pos: Vector3) -> String:
 			best_y = top
 	return best
 
-## A looping sound (rocket booster roar, breeze...). Its own copy, so the one-shot cache isn't affected.
+## A looping sound (the rocket booster roar). Its own copy, so the one-shot cache isn't affected.
 static func loop_stream(kind: String) -> AudioStream:
 	var key := "loop_" + kind
 	if not _cache.has(key):
