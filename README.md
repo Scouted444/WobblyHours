@@ -119,6 +119,7 @@ Characters come from **Low Poly Character Maker** by Fernando Lopez, licensed CC
 - **Footsteps match the floor**: wood, carpet, grass or concrete/tiles.
 - The sounds with no recording (gunshot, splash, pop, burp, eating, drinking, toy horn, boing, explosion layers) are rebuilt at full quality with proper filtering and a bit of room, instead of beeping square waves.
 - **A limiter on the master** stops anything getting painfully loud, and the same sound can only stack 6 times at once.
+- **1.33 mix pass:** effects are dry (no baked-in echo), have softer treble and rounded-off transients, sit a few dB under the music on a gently compressed bus, pan fully left/right, and get quieter and duller with distance, so you can hear where things are happening without them grabbing your attention.
 - The 6 songs are re-produced as proper mixed tracks (electric piano, plucked guitar, warm bass, real-sounding drums, reverb, mastering): Menu Groove (neo-soul), Pool Party (tropical house), Boss Fight (driving rock-synth), Sunset Drive (synthwave), Lazy Sunday (lo-fi), Disco Inferno (disco). They loop seamlessly. Files live in `audio/`; `tools/audio/` has the scripts that build them.
 - Your first-person arms and hands are now cut from your creator character (skin, sleeves, jacket, cyber arm).
 

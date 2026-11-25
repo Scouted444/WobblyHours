@@ -56,11 +56,14 @@ static func play_at(parent: Node, kind: String, pos: Vector3, volume_db := 0.0, 
 	var p := AudioStreamPlayer3D.new()
 	p.stream = st
 	p.bus = &"SFX"
-	p.volume_db = volume_db + _trim(kind)
-	p.unit_size = 6.0 * far
-	p.max_distance = 70.0 * far
-	p.attenuation_filter_cutoff_hz = 7000.0   # far-away sounds get duller, like in real life
-	p.attenuation_filter_db = -14.0
+	p.volume_db = volume_db + _trim(kind) + randf_range(-1.5, 1.0)
+	# Space: full left/right panning (Godot's project default only pans half way), a quicker fall-off
+	# with distance, and distant sounds get duller - so you can hear *where* things happen.
+	p.panning_strength = 2.0
+	p.unit_size = 3.5 * far
+	p.max_distance = 60.0 * far
+	p.attenuation_filter_cutoff_hz = 4500.0
+	p.attenuation_filter_db = -20.0
 	var j: float = PITCH_JITTER.get(kind, 0.04)
 	p.pitch_scale = randf_range(1.0 - j, 1.0 + j)
 	parent.add_child(p)
@@ -138,15 +141,21 @@ static func _setup_buses() -> void:
 			var i := AudioServer.bus_count - 1
 			AudioServer.set_bus_name(i, bus_name)
 			AudioServer.set_bus_send(i, &"Master")
+	# The effects bus is mixed to sit *under* the music: a bit quieter, gently compressed so no single
+	# sound jumps out, and no reverb (the sounds are dry; distance and panning give the space).
 	var sfx := AudioServer.get_bus_index("SFX")
-	var rv := AudioEffectReverb.new()
-	rv.room_size = 0.35
-	rv.damping = 0.7
-	rv.spread = 0.8
-	rv.hipass = 0.2
-	rv.dry = 1.0
-	rv.wet = 0.07
-	AudioServer.add_bus_effect(sfx, rv)
+	AudioServer.set_bus_volume_db(sfx, -4.0)
+	var comp := AudioEffectCompressor.new()
+	comp.threshold = -20.0
+	comp.ratio = 3.0
+	comp.attack_us = 4000.0
+	comp.release_ms = 160.0
+	comp.gain = 1.0
+	AudioServer.add_bus_effect(sfx, comp)
+	var shelf := AudioEffectHighShelfFilter.new()   # one more gentle treble roll-off for the whole bus
+	shelf.cutoff_hz = 5000.0
+	shelf.gain = 0.7
+	AudioServer.add_bus_effect(sfx, shelf)
 
 # ------------------------------------------------------------------ footstep surfaces
 ## Floors register themselves here (see HouseBuilder._b and Town._flat) so footsteps can sound like wood,

@@ -13,7 +13,7 @@ import sys
 import json
 from pathlib import Path
 import numpy as np
-from dsp import (SR, load, save_ogg, db, peak_norm, rms_db, trim, fade, soft_clip, lp, hp, bp, peq,
+from dsp import (compress, SR, load, save_ogg, db, peak_norm, rms_db, trim, fade, soft_clip, lp, hp, bp, peq,
                  sweep_lp, room, convolve, reverb_ir, shelf_hi)
 
 SRC = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("kenney")
@@ -41,6 +41,11 @@ def put(kind, x, level_db):
     The peak is always kept under -1 dBFS."""
     x = np.asarray(x, dtype=np.float64)
     x = trim(x, -55.0)
+    # mix treatment so effects sit under the music instead of poking out:
+    x = shelf_hi(x, 3200, -4.5)        # roll off the treble
+    x = lp(x, 9500)                    # no fizz up top
+    x = peq(x, 2800, -2.0, 1.0)        # tame the "ear-poking" presence band
+    x = compress(x, -22.0, 2.5, 0.002, 0.08)   # round off sharp transients a little
     x = x * db(level_db - rms_db(x))
     pk = np.max(np.abs(x))
     if pk > db(-3.0):   # keep headroom: the Ogg encoder overshoots peaks a little
@@ -80,7 +85,7 @@ for name in [f"impactPunch_medium_{i:03d}" for i in range(5)] + [f"impactPunch_h
     put("thud", k(name), -16.0)
 
 for name in [f"impactGlass_heavy_{i:03d}" for i in range(5)]:
-    put("glass", room(k(name), 0.12), -17.0)
+    put("glass", k(name), -17.0)
 
 for i in range(4):  # car crash: metal crunch + body panel + rattling bits, all real recordings
     parts = [(0, k(f"impactMetal_heavy_{i:03d}"), 0),
@@ -89,7 +94,7 @@ for i in range(4):  # car crash: metal crunch + body panel + rattling bits, all 
     for j in range(4):
         parts.append((0.12 + j * rng.uniform(0.07, 0.14), k(f"impactMetal_light_{(i + j) % 5:03d}"), -10 - j * 2))
         parts.append((0.18 + j * rng.uniform(0.06, 0.12), k(f"impactTin_medium_{(i + j + 1) % 5:03d}"), -14 - j * 2))
-    put("crash", room(mix(*parts), 0.1), -15.0)
+    put("crash", mix(*parts), -15.0)
 
 for name in ["knifeSlice", "knifeSlice2"]:
     put("stab", lp(mix((0, k(name), 0), (0.005, lp(k("impactSoft_medium_000"), 900), -4)), 7500), -18.0)
@@ -99,7 +104,7 @@ for name in ["cloth1", "cloth2", "cloth3", "handleSmallLeather", "handleSmallLea
 for name in ["cloth1", "cloth2", "cloth3", "cloth4"]:
     put("jump", hp(k(name), 120), -24.0)
 for name in ["handleCoins", "handleCoins2"]:
-    put("coins", room(lp(k(name), 8000), 0.1), -21.0)
+    put("coins", lp(k(name), 8000), -21.0)
 
 # interface (Kenney Interface Sounds / UI Audio)
 for name in ["click_001", "click_002", "click_003"]:
@@ -167,8 +172,7 @@ for v in range(3):
     shot = mix((0, click, -6), (0.001, crack, 0), (0.001, body, -2), (0, thump, -1))
     shot = soft_clip(shot / np.max(np.abs(shot)) * 1.6, 1.0)
     echo = lp(shot, 1800) * 0.25
-    shot = mix((0, shot, 0), (0.11 + v * 0.02, echo, -4), (0.23 + v * 0.03, lp(echo, 1000), -10))
-    shot = room(shot, 0.25, 1.0, 5.0, 3500, seed=v)
+    shot = mix((0, shot, 0), (0.09 + v * 0.02, lp(echo, 800), -18))   # a faint, dark tail only
     shot = lp(shelf_hi(shot, 5000, -5), 9000)
     put("shot", shot, -13.0)
 
@@ -214,7 +218,7 @@ for v in range(2):
     burst = hp(noise(0.25, 700 + v), 300) * env_exp(0.25, 45, 0.0005)
     snap = bp(noise(0.06, 710 + v), 1200, 5000) * env_exp(0.06, 120, 0.0003)
     body = additive(lambda t: 160 + 200 * np.exp(-t * 60), 0.12, [(1, 1)]) * env_exp(0.12, 40)
-    put("pop", room(lp(mix((0, snap, 0), (0, burst, -3), (0, body, -6)), 6500), 0.15), -16.0)
+    put("pop", lp(mix((0, snap, 0), (0, burst, -3), (0, body, -6)), 6500), -16.0)
 
 # --- boing: a wooden board knock plus a springy, wobbling twang
 for v in range(3):
@@ -223,7 +227,7 @@ for v in range(3):
     tw = additive(lambda t: base + 110 * np.exp(-t * 6) + 9 * np.sin(2 * np.pi * 13 * t) * np.exp(-t * 3),
                   dur, [(1, 1.0), (2, 0.25), (3, 0.08)]) * env_exp(dur, 4.0, 0.004)
     knock = k(f"impactPlank_medium_{v:03d}")
-    put("boing", room(mix((0, knock, -2), (0.004, tw, -6)), 0.12), -18.0)
+    put("boing", mix((0, knock, -2), (0.004, tw, -6)), -18.0)
 
 # --- toy car horn: rubber-bulb reed, soft and nasal ("meep")
 for v in range(2):
@@ -233,7 +237,7 @@ for v in range(2):
                     [(n, 1.0 / n ** 1.1) for n in range(1, 18)])
     reed = peq(peq(lp(reed, 3200), 900, 6, 2.0), 2100, 3, 2.0)
     e = np.minimum(t_of(dur) / 0.025, 1) * np.minimum((dur - t_of(dur)) / 0.06, 1)
-    put("honk", room(reed * e, 0.1), -20.0)
+    put("honk", reed * e, -20.0)
 
 # --- car alarm warble: sine-ish, low-passed and quieter than real alarms (they're meant to hurt; ours isn't)
 for v in range(1):
@@ -254,7 +258,7 @@ for v in range(3):
     voice = sum(bp(pulses, f * 0.85, f * 1.15) * g for f, g in [(520, 1.0), (850, 0.7), (2300, 0.15)])
     rough = 0.6 + 0.4 * np.abs(np.sin(2 * np.pi * (24 + v * 3) * t))
     e = np.sin(np.pi * np.clip(t / dur, 0, 1)) ** 0.6
-    put("burp", room(voice * rough * e, 0.12), -18.0)
+    put("burp", voice * rough * e, -18.0)
 
 # --- eating: three crunchy bites
 for v in range(2):
@@ -305,7 +309,7 @@ for v in range(3):
              (0.005, k(f"explosionCrunch_{v:03d}"), -5)]
     for j in range(7):
         parts.append((0.35 + r.uniform(0, 1.4), k(f"impactWood_light_{r.integers(5):03d}"), -20 - j))
-    x = room(mix(*parts), 0.18, 1.6, 2.5, 2500, seed=v)
+    x = room(mix(*parts), 0.06, 0.7, 6.0, 2000, seed=v)   # just a hint of space
     x = soft_clip(x / np.max(np.abs(x)) * 1.4, 1.0)
     put("boom", shelf_hi(lp(x, 6000), 2500, -5), -12.0)
 
@@ -317,11 +321,11 @@ for v in range(2):
     thr = k(f"thrusterFire_{v:03d}")[:int(1.6 * SR)].copy()
     fade(thr, 0.002, 0.5)
     x = mix((0, thr, 0), (0, roar, -4), (0, lp(np.cumsum(noise(dur, 1310 + v)) * 0.03, 120) * np.exp(-t * 2), -4))
-    put("launch", room(x, 0.12), -14.0)
+    put("launch", x, -14.0)
 
 # --- UI tones: soft bells instead of square beeps
 ding = mix((0, fm_bell(1318.5, 1.2, 3.5, 1.2, 3.2), 0), (0.09, fm_bell(1975.5, 1.2, 3.5, 1.0, 3.4), -2))
-put("ding", room(lp(ding, 7000), 0.2, 0.9, 4.0), -20.0)
+put("ding", room(lp(ding, 7000), 0.08, 0.5, 8.0), -20.0)
 
 err = mix((0, fm_bell(392.0, 0.5, 1.0, 1.5, 9.0, 12), 0), (0.12, fm_bell(311.1, 0.6, 1.0, 1.5, 8.0, 12), 0))
 put("error", lp(err, 3500), -21.0)
@@ -334,6 +338,6 @@ boot = []
 for j, f in enumerate([261.63, 329.63, 392.0, 493.88, 587.33]):   # Cmaj9 bloom
     boot.append((j * 0.12, fm_bell(f, 2.2, 1.0, 1.2, 1.8, 3), -2 - j))
     boot.append((j * 0.12, fm_bell(f * 2, 1.6, 3.5, 0.6, 2.5, 6), -12 - j))
-put("boot", room(lp(mix(*boot), 6000), 0.3, 1.8, 2.5), -20.0)
+put("boot", room(lp(mix(*boot), 6000), 0.12, 0.9, 5.0), -20.0)
 
 print("VARIANTS for sfx.gd:", json.dumps(counts, sort_keys=True))
