@@ -137,7 +137,8 @@ var _pm: PhysicsMaterial
 var _last_drive := 0
 var _ground_n := Vector3.UP
 var _air_time := 0.0
-var _boost_snd := 0.0
+var _boost_loop: AudioStreamPlayer3D
+var _boost_tw: Tween
 var _steer := 0.0
 var _prev_speed := 0.0
 var _bonk_cd := {}
@@ -796,14 +797,17 @@ func _boost_fx(delta: float) -> void:
 		if boosting:
 			f.scale = Vector3(randf_range(0.8, 1.15), randf_range(0.7, 1.4), randf_range(0.8, 1.15))
 	if boosting and not _was_boost:
-		_sfx("launch", 0.0)
+		_sfx("launch", -2.0)          # ignition
+		_booster_on()
+	elif _was_boost and not boosting:
+		_booster_off()
 	_was_boost = boosting
 	if not boosting:
 		return
-	_boost_snd -= delta
-	if _boost_snd <= 0.0:
-		_boost_snd = 0.28
-		_sfx("whoosh", -3.0)
+	# the roar climbs in pitch as the car picks up speed, with a little flutter
+	if _boost_loop != null:
+		var spd := linear_velocity.length()
+		_boost_loop.pitch_scale = lerpf(_boost_loop.pitch_scale, clampf(0.85 + spd * 0.03, 0.85, 1.3) + randf_range(-0.02, 0.02), 0.15)
 	_smoke_t -= delta
 	if _smoke_t <= 0.0:
 		_smoke_t = 0.035
@@ -811,6 +815,38 @@ func _boost_fx(delta: float) -> void:
 		if world != null:
 			for side in [-1.0, 1.0]:
 				_smoke(world, global_position + global_basis * Vector3(0.26 * side, 0.26, 1.1))
+
+## The coupe's continuous rocket-booster roar (a looping engine sound on the car itself).
+func _booster_on() -> void:
+	if _boost_loop == null:
+		_boost_loop = AudioStreamPlayer3D.new()
+		_boost_loop.stream = Sfx.loop_stream("booster")
+		_boost_loop.bus = &"SFX"
+		_boost_loop.unit_size = 5.0
+		_boost_loop.max_distance = 70.0
+		_boost_loop.panning_strength = 2.0
+		_boost_loop.attenuation_filter_cutoff_hz = 4500.0
+		_boost_loop.attenuation_filter_db = -20.0
+		add_child(_boost_loop)
+		_boost_loop.position = Vector3(0, 0.25, 1.0)   # at the nozzles
+	if _boost_tw != null:
+		_boost_tw.kill()
+	_boost_loop.volume_db = -24.0
+	_boost_loop.pitch_scale = 0.85
+	if not _boost_loop.playing:
+		_boost_loop.play(randf() * 2.0)
+	_boost_tw = create_tween()
+	_boost_tw.tween_property(_boost_loop, "volume_db", 1.0, 0.18)
+
+func _booster_off() -> void:
+	_sfx("boost_end", -4.0)
+	if _boost_loop == null:
+		return
+	if _boost_tw != null:
+		_boost_tw.kill()
+	_boost_tw = create_tween()
+	_boost_tw.tween_property(_boost_loop, "volume_db", -40.0, 0.3)
+	_boost_tw.tween_callback(_boost_loop.stop)
 
 func _physics_process(delta: float) -> void:
 	_age += delta

@@ -340,4 +340,100 @@ for j, f in enumerate([261.63, 329.63, 392.0, 493.88, 587.33]):   # Cmaj9 bloom
     boot.append((j * 0.12, fm_bell(f * 2, 1.6, 3.5, 0.6, 2.5, 6), -12 - j))
 put("boot", room(lp(mix(*boot), 6000), 0.12, 0.9, 5.0), -20.0)
 
+# ============================================================ loops and ambience
+def put_loop(kind, x, level_db, xfade=0.5):
+    """Seamless loop: the last `xfade` seconds are cross-faded into the start (equal-power)."""
+    x = np.asarray(x, dtype=np.float64)
+    n = int(xfade * SR)
+    head, body, tail = x[:n], x[n:len(x) - n], x[len(x) - n:]
+    a = np.sqrt(np.linspace(0, 1, n))
+    looped = np.concatenate([tail * np.sqrt(1 - np.linspace(0, 1, n)) + head * a, body])
+    looped = shelf_hi(looped, 3200, -3.0)
+    looped = looped * db(level_db - rms_db(looped))
+    pk = np.max(np.abs(looped))
+    if pk > db(-3.0):
+        looped *= db(-3.0) / pk
+    i = counts.get(kind, 0)
+    counts[kind] = i + 1
+    save_ogg(OUT / f"{kind}_{i}.ogg", looped.astype(np.float32), q=6)
+
+
+# --- rocket booster: a continuous roar (loops while the coupe's boosters fire)
+dur = 4.0
+t = t_of(dur)
+r = np.random.default_rng(1400)
+brown = np.cumsum(r.standard_normal(len(t)))
+brown = hp(brown - np.convolve(brown, np.ones(2001) / 2001, mode="same"), 20)
+rumble = lp(brown, 180) / np.std(lp(brown, 180))
+roar = bp(r.standard_normal(len(t)), 250, 2600)
+roar /= np.std(roar)
+hiss = bp(r.standard_normal(len(t)), 2500, 7000)
+hiss /= np.std(hiss)
+crackle = np.zeros(len(t))
+idx = r.integers(0, len(t), 700)
+crackle[idx] = r.uniform(-1, 1, 700)
+crackle = bp(crackle, 600, 4000)
+crackle /= np.std(crackle) + 1e-9
+flutter = 1 + 0.18 * lp(r.standard_normal(len(t)), 25) / np.std(lp(r.standard_normal(len(t)), 25))
+thr = k("thrusterFire_000")
+thr = thr[int(0.4 * SR):int(0.4 * SR) + len(t)]
+thr = np.pad(thr, (0, len(t) - len(thr)))
+thr /= np.std(thr) + 1e-9
+booster = (rumble * 1.0 + roar * 0.55 * flutter + hiss * 0.12 * flutter + crackle * 0.12 + thr * 0.45)
+booster = np.tanh(booster * 0.5)
+put_loop("booster", booster, -15.0, 0.6)
+
+# --- booster cut-off: the roar dying away with a sputter
+for v in range(2):
+    d2 = 0.7
+    tt = t_of(d2)
+    x = sweep_lp(bp(noise(d2, 1500 + v), 120, 3000) + lp(np.cumsum(noise(d2, 1510 + v)) * 0.05, 200), 3000, 300, 0.7)
+    x *= np.exp(-tt * 5.5) * np.minimum(tt / 0.005, 1)
+    for j in range(3):   # a few sputters
+        st = 0.08 + j * 0.09 + v * 0.02
+        pop_ = bp(noise(0.05, 1520 + j + v * 7), 300, 2500) * env_exp(0.05, 70)
+        i0 = int(st * SR)
+        x[i0:i0 + len(pop_)] += pop_ * 0.6 * np.exp(-st * 4)
+    put("boost_end", x, -18.0)
+
+# --- birds: little songs made of frequency-swept chirps (played at random spots around you)
+def chirp(f0, f1, sec, trill=0.0, shape=1.0):
+    tt = t_of(sec)
+    f = f0 + (f1 - f0) * (tt / sec) ** shape
+    ph = 2 * np.pi * np.cumsum(f) / SR
+    e = np.sin(np.pi * tt / sec) ** 1.5
+    if trill:
+        e *= 0.6 + 0.4 * np.sin(2 * np.pi * trill * tt)
+    return (np.sin(ph) + 0.08 * np.sin(2 * ph)) * e
+
+songs = [
+    [(0, 2800, 4200, 0.06), (0.12, 2800, 4200, 0.06), (0.24, 4500, 3000, 0.12)],                       # tsee-tsee-tsoo
+    [(0, 3500, 2500, 0.09), (0.1, 3500, 2500, 0.09), (0.2, 3500, 2500, 0.09), (0.3, 3600, 2300, 0.09)],  # descending chips
+    [(0, 2200, 3800, 0.25, 40)],                                                                     # rising trill
+    [(0, 4200, 3600, 0.05), (0.08, 4200, 3600, 0.05), (0.16, 4200, 3600, 0.05), (0.3, 3000, 4600, 0.15)],
+    [(0, 3000, 2000, 0.18), (0.35, 3200, 2100, 0.18)],                                               # two soft whistles
+    [(0, 2600, 3300, 0.07), (0.09, 3300, 2600, 0.07), (0.18, 2600, 3300, 0.07), (0.27, 3300, 2600, 0.07), (0.4, 3800, 3000, 0.2, 25)],
+    [(0, 1800, 2600, 0.12), (0.18, 2600, 1900, 0.2)],                                                # dove-ish low coo-whistle
+    [(0, 5000, 4000, 0.03), (0.05, 5000, 4000, 0.03), (0.1, 5000, 4000, 0.03), (0.15, 5000, 4000, 0.03), (0.2, 5000, 4000, 0.03)],
+]
+for i, sng in enumerate(songs):
+    parts = []
+    for c in sng:
+        off, f0, f1, sec = c[:4]
+        tr = c[4] if len(c) > 4 else 0.0
+        parts.append((off, chirp(f0, f1, sec, tr, 0.7), 0))
+    x = mix(*parts)
+    x = np.concatenate([x, np.zeros(int(0.05 * SR))])
+    put("bird", lp(x, 7000), -26.0)
+
+# --- gentle breeze bed (non-positional, very quiet)
+dur = 16.0
+t = t_of(dur)
+r = np.random.default_rng(1600)
+lfo = lp(r.standard_normal(len(t)), 0.4)
+lfo = (lfo - lfo.min()) / (lfo.max() - lfo.min())
+w = bandsweep(r.standard_normal(len(t)), lambda tt: 280 + 500 * lfo[min(int(tt * SR), len(lfo) - 1)], q=0.7, block=512)
+leaves = bp(r.standard_normal(len(t)), 1500, 5000) * (lfo ** 3) * 0.25
+put_loop("breeze", (w * (0.35 + 0.65 * lfo) + leaves), -30.0, 2.0)
+
 print("VARIANTS for sfx.gd:", json.dumps(counts, sort_keys=True))

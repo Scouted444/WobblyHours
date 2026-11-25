@@ -422,6 +422,8 @@ class JukeboxApp extends VBoxContainer:
 
 	func _ready() -> void:
 		custom_minimum_size = Vector2(340, 0)
+		local.bus = &"Music"
+		local.add_to_group("user_music")   # the background radio fades out while this plays
 		add_child(local)
 		now = Label.new()
 		now.text = "Pick a song. Everyone near this computer hears it."

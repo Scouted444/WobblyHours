@@ -8,4 +8,4 @@ Sound effects
   were made for this game by tools/audio/make_sfx.py.
 
 Music
-  All 6 songs were composed and rendered for this game by tools/audio/make_music.py.
+  All 9 songs were composed and rendered for this game by tools/audio/make_music.py.

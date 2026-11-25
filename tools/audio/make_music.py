@@ -466,9 +466,118 @@ def disco_inferno():
     return s, dict(rev=reverb_ir(1.7, 3.2, seed=6), delay_beats=0.5, delay_fb=0.25)
 
 
+
+def strum(song, trk, bars, start_bar, pattern, center=66, size=4, vol_db=0.0, bright=0.7):
+    """Strummed chords, ukulele / acoustic style. pattern: list of (beat, 'D'|'U', vel)."""
+    for b, ch in enumerate(bars):
+        for beat, d, vel in pattern:
+            sym = ch[0] if beat < 2 or len(ch) == 1 else ch[1]
+            v = voicing(sym, center, None, size)
+            order = v if d == "D" else v[::-1]
+            for j, m in enumerate(order):
+                song.note(trk, (start_bar + b) * song.bpb + beat + j * 0.018, 0.45,
+                          lambda s_, m=m, vv=vel * (1 - j * 0.06): I.guitar(m, s_, vv, bright, damp=0.994), vol_db - 3)
+
+
+def sunny_afternoon():
+    """Bright, bouncy acoustic pop: strummed uke-guitar, marimba hook, claps and shaker."""
+    s = Song("Sunny Afternoon", 116, 32, swing=0.08, seed=7)
+    s.track("strum", pan=-0.35, rev=0.12)
+    s.track("strum2", pan=0.35, rev=0.12, gain_db=-3)
+    s.track("hook", pan=0.1, rev=0.2, dly=0.15)
+    s.track("bass", rev=0.0)
+    s.track("drums", rev=0.08)
+    s.track("drums_shk", pan=0.4, rev=0.05, gain_db=-6)
+    s.track("drums_clap", pan=-0.1, rev=0.12, gain_db=-4)
+    A = [["D:maj"], ["A:maj"], ["B:min7"], ["G:add9"]]
+    B = [["G:maj7"], ["A:maj"], ["F#:min7"], ["B:min7"], ["E:min7"], ["G:maj"], ["A:7sus"], ["A:maj"]]
+    prog = bars_of(A, 8) + bars_of(A, 8) + B + bars_of(A, 8)
+    pat = [(0, "D", 0.9), (1, "D", 0.7), (1.5, "U", 0.5), (2.5, "U", 0.6), (3, "D", 0.7), (3.5, "U", 0.55)]
+    strum(s, "strum", prog, 0, pat, center=67)
+    strum(s, "strum2", prog[8:], 8, [(0.5, "U", 0.5), (1.5, "U", 0.5), (2.5, "U", 0.5), (3.5, "U", 0.5)], center=72, size=3)
+    bassline(s, "bass", lambda m, d, v: I.sub_bass(m, d, v, 0.45, 0.8), prog, 0,
+             [(0, 0.45, "R", 0.95), (1, 0.45, "5", 0.7), (2, 0.45, "8", 0.8), (2.75, 0.25, "5", 0.6), (3, 0.45, "R", 0.75), (3.5, 0.4, "n", 0.6)],
+             octave=38)
+    for b in range(32):
+        p = {"kick": "x.......x.x.....", "clap": "....x.......x...", "shk": "xoxoxoxoxoxoxoxo"} if b >= 4 else {"shk": "xoxoxoxoxoxoxoxo"}
+        if b % 8 == 7 and b >= 4:
+            p = dict(p, clap="....x.......x.xx")
+        s.drums(b, p, KIT, {"kick": -2, "clap": -6, "shk": -10})
+    sc = scale_of("D", "pent")
+    rh = [[(0, 2), (2, 2), (4, 2), (6, 4), (12, 2), (14, 2), (16, 4), (22, 2), (24, 6)],
+          [(0, 3), (3, 3), (6, 2), (8, 4), (16, 2), (18, 2), (20, 2), (22, 2), (24, 8)],
+          [(2, 2), (4, 4), (10, 2), (12, 4), (18, 2), (20, 4), (26, 6)]]
+    write_melody(s, "hook", lambda m, d, v: I.marimba(m, d, v), prog[8:], 8, 24, sc, 69, 88, rh,
+                 vol_db=-1, seed=77)
+    return s, dict(rev=reverb_ir(1.3, 4.0, seed=7), delay_beats=0.75, delay_fb=0.25)
+
+
+def backyard_bounce():
+    """Happy funk-pop: Rhodes stabs, poppy bass, clean guitar tune, tight claps."""
+    s = Song("Backyard Bounce", 104, 32, swing=0.1, seed=8)
+    s.track("keys", pan=-0.3, rev=0.15)
+    s.track("gtr", pan=0.35, rev=0.18, dly=0.12)
+    s.track("bass")
+    s.track("drums", rev=0.06)
+    s.track("drums_hat", pan=0.3, rev=0.05, gain_db=-4)
+    s.track("drums_clap", rev=0.1, gain_db=-3)
+    A = [["Bb:maj7"], ["G:min7"], ["Eb:maj7"], ["F:dom7"]]
+    B = [["Eb:maj7"], ["D:min7"], ["C:min7"], ["F:7sus"]]
+    prog = bars_of(A, 8) + bars_of(A, 8) + bars_of(B, 8) + bars_of(A, 8)
+    comp(s, "keys", lambda m, d, v: I.epiano(m, d, v, 1.1), prog, 0,
+         [(0, 0.3, 0.8), (0.75, 0.25, 0.6), (1.5, 0.3, 0.7), (2.5, 0.3, 0.75), (3.25, 0.5, 0.6)], center=65, size=4)
+    bassline(s, "bass", lambda m, d, v: I.sub_bass(m, d, v, 0.6, 1.0), prog, 0,
+             [(0, 0.35, "R", 1.0), (0.75, 0.2, "8", 0.7), (1, 0.3, "R", 0.75), (1.75, 0.2, "5", 0.6), (2.5, 0.35, "8", 0.8),
+              (3, 0.3, "7", 0.65), (3.5, 0.3, "n", 0.7)], octave=34)
+    for b in range(32):
+        p = {"kick": "X..x..x...X..x..", "clap": "....X.......X...", "hat": "xxxoxxxoxxxoxxxo"} if b >= 2 else {"hat": "x.x.x.x.x.x.x.x."}
+        s.drums(b, p, KIT, {"kick": -1, "clap": -5, "hat": -12})
+    sc = scale_of("Bb", "major")
+    rh = [[(0, 2), (2, 1), (3, 3), (6, 2), (8, 2), (10, 6), (20, 2), (22, 2), (24, 4), (28, 4)],
+          [(0, 4), (4, 2), (6, 2), (8, 2), (10, 2), (12, 4), (16, 8), (24, 8)],
+          [(2, 2), (4, 2), (6, 2), (8, 4), (14, 2), (16, 2), (18, 2), (20, 4), (26, 6)]]
+    write_melody(s, "gtr", lambda m, d, v: I.guitar(m, d, v, 0.6, damp=0.997), prog[8:], 8, 24, sc, 65, 84, rh,
+                 vol_db=0, seed=88)
+    return s, dict(rev=reverb_ir(1.4, 3.8, seed=8), delay_beats=0.75, delay_fb=0.28)
+
+
+def cannonball():
+    """Summer pool anthem: steel-pan hook, off-beat guitar, warm pad, light four-on-the-floor."""
+    s = Song("Cannonball", 120, 32, seed=9)
+    s.track("pad", rev=0.25, duck=0.45, gain_db=-7)
+    s.track("gtr", pan=-0.4, rev=0.12, duck=0.2)
+    s.track("hook", pan=0.2, rev=0.2, dly=0.18)
+    s.track("bass", duck=0.3)
+    s.track("drums", rev=0.06)
+    s.track("drums_ohat", pan=0.3, rev=0.06, gain_db=-8)
+    s.track("drums_shk", pan=-0.3, rev=0.05, gain_db=-9)
+    prog = bars_of([["A:maj"], ["E:maj"], ["F#:min7"], ["D:maj9"]], 32)
+    comp(s, "pad", lambda m, d, v: I.pad(m, d, v, 2400, 0.1), prog, 0, [(0, 3.95, 0.7)], center=64)
+    comp(s, "gtr", lambda m, d, v: I.guitar(m, d, v, 0.65, mute=True), prog[4:], 4,
+         [(0.5, 0.2, 0.7), (1.5, 0.2, 0.7), (2.5, 0.2, 0.7), (3.5, 0.2, 0.7)], center=69, size=3)
+    bassline(s, "bass", lambda m, d, v: I.sub_bass(m, d, v, 0.35, 0.6), prog, 0,
+             [(0, 0.4, "R", 0.95), (1, 0.4, "R", 0.7), (1.5, 0.3, "8", 0.6), (2, 0.4, "5", 0.8), (3, 0.4, "R", 0.75), (3.5, 0.3, "8", 0.6)],
+             octave=33)
+    for b in range(32):
+        p = {"kick": "x...x...x...x...", "clap": "....x.......x...", "ohat": "..x...x...x...x.", "shk": "xxxxxxxxxxxxxxxx"}
+        if b < 4:
+            p = {"shk": p["shk"], "ohat": p["ohat"]}
+        if b % 8 == 0 and b >= 8:
+            p = dict(p, crash="x...............")
+        s.drums(b, p, KIT, {"kick": -1, "clap": -7, "ohat": -10, "shk": -14, "crash": -16})
+    sc = scale_of("A", "pent")
+    rh = [[(0, 2), (2, 2), (4, 2), (6, 2), (8, 4), (14, 2), (16, 2), (18, 2), (20, 4), (26, 6)],
+          [(0, 3), (3, 3), (6, 2), (8, 8), (16, 3), (19, 3), (22, 2), (24, 8)],
+          [(2, 2), (4, 2), (8, 2), (10, 2), (12, 4), (18, 2), (20, 2), (24, 8)]]
+    write_melody(s, "hook", lambda m, d, v: I.steel(m, d, v), prog[8:], 8, 24, sc, 69, 88, rh, vol_db=-1, seed=99)
+    return s, dict(rev=reverb_ir(1.5, 3.6, seed=9), delay_beats=0.75, delay_fb=0.3)
+
+
 SONGS = {"Menu Groove": ("menu_groove", menu_groove), "Pool Party": ("pool_party", pool_party),
          "Boss Fight": ("boss_fight", boss_fight), "Sunset Drive": ("sunset_drive", sunset_drive),
-         "Lazy Sunday": ("lazy_sunday", lazy_sunday), "Disco Inferno": ("disco_inferno", disco_inferno)}
+         "Lazy Sunday": ("lazy_sunday", lazy_sunday), "Disco Inferno": ("disco_inferno", disco_inferno),
+         "Sunny Afternoon": ("sunny_afternoon", sunny_afternoon), "Backyard Bounce": ("backyard_bounce", backyard_bounce),
+         "Cannonball": ("cannonball", cannonball)}
 
 if __name__ == "__main__":
     only = sys.argv[2:] if len(sys.argv) > 2 else None

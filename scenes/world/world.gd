@@ -39,6 +39,10 @@ func _ready() -> void:
 	add_child(prop_spawner)
 
 	_build_hud()
+	var amb := Ambience.new()   # background radio, birds, breeze
+	amb.name = "Ambience"
+	amb.world = self
+	add_child(amb)
 	missions = Missions.new()
 	missions.name = "Missions"
 	add_child(missions)

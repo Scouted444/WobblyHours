@@ -14,17 +14,17 @@ const MUSIC_DIR := "res://audio/music/"
 
 ## How many takes each sound has (<kind>_0.ogg ... <kind>_N-1.ogg).
 const VARIANTS := {
-	"alarm": 1, "bleep": 2, "boing": 3, "boom": 3, "boot": 1, "burp": 3, "chat": 2, "click": 3, "coins": 2,
+	"alarm": 1, "bird": 8, "boost_end": 2, "booster": 1, "breeze": 1, "bleep": 2, "boing": 3, "boom": 3, "boot": 1, "burp": 3, "chat": 2, "click": 3, "coins": 2,
 	"crash": 4, "ding": 1, "error": 1, "glass": 5, "glug": 2, "honk": 2, "hover": 2, "jump": 4, "land": 5,
 	"launch": 2, "nom": 2, "pickup": 5, "pop": 2, "puff": 2, "shot": 3, "splash": 3, "stab": 2,
 	"step_carpet": 5, "step_concrete": 5, "step_grass": 5, "step_wood": 5, "throw": 3, "thud": 8, "whoosh": 4}
 
 ## Loudness trim per sound (dB), added to whatever the caller asks for, so the whole mix sits together.
-const TRIM := {"click": 4.0, "hover": 4.0, "chat": 3.0, "bleep": 2.0, "step": 2.0, "jump": 2.0, "pickup": 2.0,
+const TRIM := {"bird": 0.0, "click": 4.0, "hover": 4.0, "chat": 3.0, "bleep": 2.0, "step": 2.0, "jump": 2.0, "pickup": 2.0,
 	"boom": -1.0, "launch": -2.0, "alarm": -2.0}
 
 ## How much random pitch each sound gets (recordings sound natural with a little, UI sounds get none).
-const PITCH_JITTER := {"click": 0.0, "hover": 0.0, "ding": 0.0, "error": 0.0, "boot": 0.0, "chat": 0.0,
+const PITCH_JITTER := {"bird": 0.08, "click": 0.0, "hover": 0.0, "ding": 0.0, "error": 0.0, "boot": 0.0, "chat": 0.0,
 	"coins": 0.02, "alarm": 0.0, "honk": 0.02}
 
 ## At most this many copies of one sound can play at once (stops 16 players' footsteps or a pile-up of
@@ -34,8 +34,12 @@ const MAX_VOICES := 6
 ## Songs: jukebox name -> file in MUSIC_DIR.
 const TUNES := {
 	"Menu Groove": "menu_groove", "Pool Party": "pool_party", "Boss Fight": "boss_fight",
-	"Sunset Drive": "sunset_drive", "Lazy Sunday": "lazy_sunday", "Disco Inferno": "disco_inferno"}
-const TUNE_NAMES := ["Menu Groove", "Pool Party", "Boss Fight", "Sunset Drive", "Lazy Sunday", "Disco Inferno"]
+	"Sunset Drive": "sunset_drive", "Lazy Sunday": "lazy_sunday", "Disco Inferno": "disco_inferno",
+	"Sunny Afternoon": "sunny_afternoon", "Backyard Bounce": "backyard_bounce", "Cannonball": "cannonball"}
+const TUNE_NAMES := ["Sunny Afternoon", "Backyard Bounce", "Cannonball", "Pool Party", "Menu Groove",
+	"Disco Inferno", "Sunset Drive", "Lazy Sunday", "Boss Fight"]
+## The in-game background radio plays these (the happy ones), shuffled.
+const RADIO := ["Sunny Afternoon", "Backyard Bounce", "Cannonball", "Pool Party", "Menu Groove"]
 
 static var _cache := {}
 static var _last := {}      # kind -> last take played, so the same take never plays twice in a row
@@ -197,6 +201,17 @@ static func surface_at(pos: Vector3) -> String:
 			best = f[3]
 			best_y = top
 	return best
+
+## A looping sound (rocket booster roar, breeze...). Its own copy, so the one-shot cache isn't affected.
+static func loop_stream(kind: String) -> AudioStream:
+	var key := "loop_" + kind
+	if not _cache.has(key):
+		var st: AudioStream = load("%s%s_0.ogg" % [SFX_DIR, kind])
+		if st is AudioStreamOggVorbis:
+			st = st.duplicate()
+			(st as AudioStreamOggVorbis).loop = true
+		_cache[key] = st
+	return _cache[key]
 
 # ------------------------------------------------------------------ music
 ## Calls on_ready(stream) with a looping song (deferred, like the old background renderer).
