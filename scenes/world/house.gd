@@ -28,6 +28,8 @@ func build() -> void:
 
 # ------------------------------------------------------------------ helpers
 func _b(parent: Node3D, pos: Vector3, size: Vector3, mat: Material, collide := true, rot := Vector3.ZERO, sink := 0.08) -> Node3D:
+	if rot == Vector3.ZERO:
+		Sfx.add_floor(parent, pos, size, mat)   # footsteps on it sound like its material
 	var mesh := MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = size

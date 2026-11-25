@@ -111,11 +111,15 @@ All furniture, props, items, the pool gear and the character body parts are real
 - **New character creator** (K in game, or Customize in the menu): live 3D preview, Male/Female, hair, eyebrows, eyes, mouth, facial hair, glasses, shirt, jacket, bodysuit, pants, belt, shoes, cyber arm, with colour swatches and a custom colour picker. Other players see your character.
 
 ## Credits
+Sound effects use Kenney's Impact Sounds, RPG Audio, Sci-Fi Sounds, Interface Sounds and UI Audio packs (CC0, www.kenney.nl); see `audio/CREDITS.txt`.
 Characters come from **Low Poly Character Maker** by Fernando Lopez, licensed CC-BY 4.0: https://github.com/fernandolv33/lowpoly-chmaker . The models are unmodified (see `models/CREDITS_chmaker.txt`). The editor was rewritten for Godot 4 and this game's multiplayer.
 
-## Sound and music
-- New sound effects: footsteps, jump, landing, splash, thud when knocked down, trampoline boing, explosions, rocket launch, throw, chat blip, plus punchier shots, pops and UI clicks. Pitch varies a little each time.
-- Songs are now full tracks with lead, arpeggio, bass and drums: Menu Groove, Pool Party, Boss Fight, Sunset Drive, Lazy Sunday and Disco Inferno. Pick them in the bedroom computer's Jukebox. Songs render in the background, so a song may take a second to start the first time.
+## Sound and music (1.32: real audio)
+- Sound effects are now **real recordings**: footsteps, punches, landings, glass, car crashes (crunching metal and rattling bits), knife, cloth rustles, coins and UI clicks come from Kenney's CC0 foley packs. Every sound has several takes and a random one plays each time.
+- **Footsteps match the floor**: wood, carpet, grass or concrete/tiles.
+- The sounds with no recording (gunshot, splash, pop, burp, eating, drinking, toy horn, boing, explosion layers) are rebuilt at full quality with proper filtering and a bit of room, instead of beeping square waves.
+- **A limiter on the master** stops anything getting painfully loud, and the same sound can only stack 6 times at once.
+- The 6 songs are re-produced as proper mixed tracks (electric piano, plucked guitar, warm bass, real-sounding drums, reverb, mastering): Menu Groove (neo-soul), Pool Party (tropical house), Boss Fight (driving rock-synth), Sunset Drive (synthwave), Lazy Sunday (lo-fi), Disco Inferno (disco). They loop seamlessly. Files live in `audio/`; `tools/audio/` has the scripts that build them.
 - Your first-person arms and hands are now cut from your creator character (skin, sleeves, jacket, cyber arm).
 
 ## Camera, stuck button

@@ -262,9 +262,10 @@ func _start_music() -> void:
 	add_child(_music)
 	_update_music_volume()
 	# the song is rendered on a background thread so the menu opens instantly
-	Sfx.tune_async("Menu Groove", func(st: AudioStreamWAV):
+	Sfx.tune_async("Menu Groove", func(st: AudioStream):
 		if _music == null or not is_instance_valid(_music):
 			return
+		_music.bus = &"Music"
 		_music.stream = st
 		if menu != null and menu.visible:
 			_music.play())

@@ -1,0 +1,11 @@
+Wobbly Hours audio
+
+Sound effects
+  Recorded foley from Kenney (www.kenney.nl), licensed CC0 (public domain):
+    Impact Sounds, RPG Audio, Sci-Fi Sounds, Interface Sounds, UI Audio.
+  Some files are layered / trimmed / levelled mixes of those recordings.
+  Synthesised sounds (gunshot, splash, pop, burp, eating, drinking, horn, alarm, boing, UI chimes)
+  were made for this game by tools/audio/make_sfx.py.
+
+Music
+  All 6 songs were composed and rendered for this game by tools/audio/make_music.py.

@@ -993,8 +993,9 @@ func jukebox(track: String, at: Vector3) -> void:
 	_juke.global_position = at
 	_juke_want = track
 	_juke.stop()
-	Sfx.tune_async(track, func(st: AudioStreamWAV):
+	Sfx.tune_async(track, func(st: AudioStream):
 		if _juke != null and is_instance_valid(_juke) and _juke_want == track:
+			_juke.bus = &"Music"
 			_juke.stream = st
 			_juke.play())
 
@@ -1078,7 +1079,7 @@ func add_money(id: int, amount: int) -> void:
 @rpc("authority", "call_remote", "reliable")
 func _set_money(amount: int) -> void:
 	if amount < my_money:
-		Sfx.play_ui(self, "ding", -2.0)   # cha-ching
+		Sfx.play_ui(self, "coins", -2.0)   # cha-ching
 	my_money = amount
 	if _money_label != null:
 		_money_label.text = "$%d" % amount

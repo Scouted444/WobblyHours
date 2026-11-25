@@ -162,6 +162,7 @@ const Y_TOP := 0.095     # paint on the lot, planted beds, oil stains
 
 ## Flat ground cover, a solid slab from the grass up to height y (so kerbs have a side, not a gap).
 func _flat(x0: float, z0: float, x1: float, z1: float, y: float, mat: Material) -> void:
+	Sfx.add_floor(self, Vector3((x0 + x1) * 0.5, y * 0.5 - 0.005, (z0 + z1) * 0.5), Vector3(absf(x1 - x0), y + 0.01, absf(z1 - z0)), mat)
 	_abox(Vector3((x0 + x1) * 0.5, y * 0.5 - 0.005, (z0 + z1) * 0.5), Vector3(absf(x1 - x0), y + 0.01, absf(z1 - z0)), mat)
 
 func _commit() -> void:

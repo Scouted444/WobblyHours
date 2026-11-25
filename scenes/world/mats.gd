@@ -52,6 +52,8 @@ static func textured(kind: String, tint := Color.WHITE, tile_m := 2.0, rough := 
 	m.uv1_world_triplanar = true
 	m.uv1_scale = Vector3.ONE / tile_m
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	# what footsteps sound like on it (see Sfx.surface_at)
+	m.set_meta("surface", {"planks": "wood", "carpet": "carpet", "grass": "grass"}.get(kind, "concrete"))
 	_cache[key] = m
 	return m
 
