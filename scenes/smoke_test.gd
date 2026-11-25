@@ -376,4 +376,6 @@ func _invite_test() -> void:
 	_log("host link: code '%s' lan '%s' lines %s" % [Net.link.invite_full, Net.link.lan_v4, str(Net.link.status_lines())])
 	var pm := PauseMenu.new()
 	add_child(pm)
+	for pg in ["controls", "host", "net", "main"]:
+		pm._show(pg)
 	pm.queue_free()

@@ -286,7 +286,7 @@ func host_clear(what: String) -> void:
 				n.queue_free()
 			clear_blood.rpc()
 			get_tree().create_timer(0.3).timeout.connect(_spawn_starting_props)
-	toast.rpc("The host cleared %s" % {"props": "all the props", "people": "all the people", "gore": "the blood and body parts", "traffic": "the cars", "all": "everything (fresh start)"}.get(what, what))
+	toast.rpc("The host cleared %s" % {"props": "all the props", "people": "all the people", "gore": "the blood", "traffic": "the cars", "all": "everything (fresh start)"}.get(what, what))
 	toast("Cleared")
 
 @rpc("authority", "call_local", "reliable")
@@ -1137,7 +1137,7 @@ const LIMB_OFFSET := {"head": Vector3(0, 1.65, 0), "arm_l": Vector3(-0.32, 1.25,
 	"leg_l": Vector3(-0.12, 0.5, 0), "leg_r": Vector3(0.12, 0.5, 0)}
 
 ## Knock a limb off a person or a player, and drop it in the world (or straight into `give_to`'s hand).
-## Only when the HOST has "Blood & dismemberment" on. Returns false if nothing came off.
+## Only when the HOST has "Blood" on. Returns false if nothing came off.
 func sever_limb(target: Node3D, limb: String, push: Vector3, give_to: Player = null) -> bool:
 	if not multiplayer.is_server() or not Settings.gore or not Npc.LIMB_BITS.has(limb):
 		return false
@@ -1206,7 +1206,7 @@ func rip(origin: Vector3, dir: Vector3) -> void:
 	if pl == null or not pl.gloves_on or not origin.is_finite() or not dir.is_finite():
 		return
 	if not Settings.gore:
-		_toast_to(id, "The host has Blood & dismemberment turned off")
+		_toast_to(id, "The host has Blood turned off")
 		return
 	dir = dir.normalized()
 	var best: Node3D = null

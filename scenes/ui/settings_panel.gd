@@ -41,7 +41,7 @@ func _ready() -> void:
 	_slider(box, "Menu music", 0.0, 1.0, Settings.music, func(v: float): Settings.music = v)
 
 	_section(box, "Gameplay")
-	_check(box, "Blood & dismemberment", Settings.gore, "Only on your screen (the host decides whether limbs come off).", func(on: bool): Settings.gore = on)
+	_check(box, "Blood", Settings.gore, "Only on your screen.", func(on: bool): Settings.gore = on)
 
 	box.add_child(_gap(6))
 	var back := Button.new()
