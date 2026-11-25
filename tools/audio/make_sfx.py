@@ -426,14 +426,4 @@ for i, sng in enumerate(songs):
     x = np.concatenate([x, np.zeros(int(0.05 * SR))])
     put("bird", lp(x, 7000), -26.0)
 
-# --- gentle breeze bed (non-positional, very quiet)
-dur = 16.0
-t = t_of(dur)
-r = np.random.default_rng(1600)
-lfo = lp(r.standard_normal(len(t)), 0.4)
-lfo = (lfo - lfo.min()) / (lfo.max() - lfo.min())
-w = bandsweep(r.standard_normal(len(t)), lambda tt: 280 + 500 * lfo[min(int(tt * SR), len(lfo) - 1)], q=0.7, block=512)
-leaves = bp(r.standard_normal(len(t)), 1500, 5000) * (lfo ** 3) * 0.25
-put_loop("breeze", (w * (0.35 + 0.65 * lfo) + leaves), -30.0, 2.0)
-
 print("VARIANTS for sfx.gd:", json.dumps(counts, sort_keys=True))

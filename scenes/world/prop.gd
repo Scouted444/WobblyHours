@@ -796,13 +796,14 @@ func _boost_fx(delta: float) -> void:
 		f.visible = boosting
 		if boosting:
 			f.scale = Vector3(randf_range(0.8, 1.15), randf_range(0.7, 1.4), randf_range(0.8, 1.15))
-	if boosting and not _was_boost:
+	var firing := boosting and rider != 0
+	if firing and not _was_boost:
 		_sfx("launch", -2.0)          # ignition
 		_booster_on()
-	elif _was_boost and not boosting:
+	elif _was_boost and not firing:
 		_booster_off()
-	_was_boost = boosting
-	if not boosting:
+	_was_boost = firing
+	if not firing:
 		return
 	# the roar climbs in pitch as the car picks up speed, with a little flutter
 	if _boost_loop != null:

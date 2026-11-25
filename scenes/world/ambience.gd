@@ -1,8 +1,8 @@
 class_name Ambience
 extends Node
 ## Makes the party feel alive: a background radio of happy songs (it fades out while the bedroom jukebox
-## or your own dropped-in music is playing nearby), birds chirping from spots all around you, and a soft
-## breeze. Runs locally on every player; nothing here is networked.
+## or your own dropped-in music is playing nearby) and birds chirping from spots all around you.
+## Runs locally on every player; nothing here is networked.
 
 const RADIO_LEVEL := 0.35       # background music sits under everything (times the Music setting)
 const LOOPS_PER_SONG := 2
@@ -17,17 +17,10 @@ var _song_left := 0.0
 var _duck := 1.0                # 1 = radio audible, 0 = faded out for the jukebox
 var _xfade := 1.0               # 0..1 progress of the current cross-fade
 var _bird_t := 2.0
-var _breeze: AudioStreamPlayer
 
 func _ready() -> void:
 	_a = _make_player()
 	_b = _make_player()
-	_breeze = AudioStreamPlayer.new()
-	_breeze.stream = Sfx.loop_stream("breeze")
-	_breeze.bus = &"SFX"
-	_breeze.volume_db = -6.0
-	add_child(_breeze)
-	_breeze.play()
 	_next_song()
 
 func _make_player() -> AudioStreamPlayer:

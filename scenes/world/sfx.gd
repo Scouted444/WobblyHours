@@ -14,7 +14,7 @@ const MUSIC_DIR := "res://audio/music/"
 
 ## How many takes each sound has (<kind>_0.ogg ... <kind>_N-1.ogg).
 const VARIANTS := {
-	"alarm": 1, "bird": 8, "boost_end": 2, "booster": 1, "breeze": 1, "bleep": 2, "boing": 3, "boom": 3, "boot": 1, "burp": 3, "chat": 2, "click": 3, "coins": 2,
+	"alarm": 1, "bird": 8, "boost_end": 2, "booster": 1, "bleep": 2, "boing": 3, "boom": 3, "boot": 1, "burp": 3, "chat": 2, "click": 3, "coins": 2,
 	"crash": 4, "ding": 1, "error": 1, "glass": 5, "glug": 2, "honk": 2, "hover": 2, "jump": 4, "land": 5,
 	"launch": 2, "nom": 2, "pickup": 5, "pop": 2, "puff": 2, "shot": 3, "splash": 3, "stab": 2,
 	"step_carpet": 5, "step_concrete": 5, "step_grass": 5, "step_wood": 5, "throw": 3, "thud": 8, "whoosh": 4}
