@@ -51,6 +51,14 @@ func _my_player() -> Player:
 	return world.get_node_or_null(str(multiplayer.get_unique_id())) as Player
 
 # --------------------------------------------------------------------- menu
+## Three small screens instead of one crowded one:
+##   home: name, HOST, JOIN, and a row of small buttons (character, workshop, settings, quit)
+##   host: pick Sandbox or Campaign, START
+##   join: invite code / IP, parties on your network
+## The version and updates sit quietly in the bottom corner.
+const NAME_FILE := "user://name.txt"
+var _pages := {}
+
 func _build_menu() -> void:
 	layer = CanvasLayer.new()
 	add_child(layer)
@@ -63,81 +71,156 @@ func _build_menu() -> void:
 	var center := CenterContainer.new()
 	menu.add_child(center)
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var box := VBoxContainer.new()
-	box.custom_minimum_size = Vector2(520, 0)
-	box.add_theme_constant_override("separation", 10)
-	center.add_child(box)
+	var col := VBoxContainer.new()
+	col.custom_minimum_size = Vector2(460, 0)
+	col.add_theme_constant_override("separation", 14)
+	center.add_child(col)
+	col.add_child(Logo.new())
 
-	box.add_child(Logo.new())
-	box.add_child(_spacer(6))
-
+	# ---- home
+	var home := _page(col, "home")
 	name_edit = LineEdit.new()
 	name_edit.placeholder_text = "Your name"
-	name_edit.text = "Player%d" % randi_range(100, 999)
+	name_edit.text = FileAccess.get_file_as_string(NAME_FILE).strip_edges() if FileAccess.file_exists(NAME_FILE) else "Player%d" % randi_range(100, 999)
 	name_edit.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_edit.max_length = 16
-	box.add_child(name_edit)
+	name_edit.custom_minimum_size = Vector2(0, 44)
+	name_edit.text_changed.connect(func(t: String):
+		var f := FileAccess.open(NAME_FILE, FileAccess.WRITE)
+		if f != null:
+			f.store_string(t.strip_edges()))
+	home.add_child(name_edit)
+	home.add_child(_btn("HOST A PARTY", func(): _show_page("host"), Color(0.45, 0.9, 0.5)))
+	home.add_child(_btn("JOIN A PARTY", func(): _show_page("join"), Color(0.4, 0.8, 1.0)))
+	var small := HBoxContainer.new()
+	small.add_theme_constant_override("separation", 8)
+	home.add_child(small)
+	for item in [["Character", _on_customize], ["Workshop", _on_workshop], ["Settings", func(): _open_settings(layer)], ["Quit", func(): get_tree().quit()]]:
+		var b := _small_btn(str(item[0]), item[1])
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		small.add_child(b)
 
-	var host_row := HBoxContainer.new()
-	host_row.add_theme_constant_override("separation", 8)
-	box.add_child(host_row)
-	var host_btn := _btn("HOST A PARTY", _on_host, Color(0.45, 0.9, 0.5))
-	host_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	host_row.add_child(host_btn)
-	var mode_pick := OptionButton.new()
-	mode_pick.add_item("Sandbox")
-	mode_pick.add_item("Campaign")
-	mode_pick.tooltip_text = "Sandbox: spawn anything, free money.\nCampaign: no spawning - do jobs in town to earn cash."
-	mode_pick.custom_minimum_size = Vector2(150, 50)
-	mode_pick.selected = 1 if Net.mode == "campaign" else 0
-	mode_pick.item_selected.connect(func(i: int): Net.mode = "campaign" if i == 1 else "sandbox")
-	host_row.add_child(mode_pick)
+	# ---- host
+	var host := _page(col, "host")
+	host.add_child(_heading("Host a party"))
+	var modes := HBoxContainer.new()
+	modes.add_theme_constant_override("separation", 10)
+	host.add_child(modes)
+	var desc := Label.new()
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.custom_minimum_size = Vector2(0, 46)
+	desc.add_theme_color_override("font_color", Color(1, 1, 1, 0.8))
+	var group := ButtonGroup.new()
+	var texts := {"sandbox": "Spawn anything, free money, total chaos.",
+		"campaign": "No spawning. Earn cash doing jobs in town, then spend it."}
+	for m in ["sandbox", "campaign"]:
+		var t := Button.new()
+		t.text = String(m).capitalize()
+		t.toggle_mode = true
+		t.button_group = group
+		t.custom_minimum_size = Vector2(0, 46)
+		t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		t.button_pressed = Net.mode == m
+		var mode_id := String(m)
+		t.toggled.connect(func(on: bool):
+			if on:
+				Net.mode = mode_id
+				desc.text = texts[mode_id])
+		modes.add_child(t)
+	desc.text = texts.get(Net.mode, texts["sandbox"])
+	host.add_child(desc)
+	host.add_child(_btn("START", _on_host, Color(0.45, 0.9, 0.5)))
+	var hint := Label.new()
+	hint.text = "You'll get an invite code to send your friends."
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", 14)
+	hint.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
+	host.add_child(hint)
+	host.add_child(_small_btn("Back", func(): _show_page("home")))
+
+	# ---- join
+	var join := _page(col, "join")
+	join.add_child(_heading("Join a party"))
 	var join_row := HBoxContainer.new()
 	join_row.add_theme_constant_override("separation", 8)
-	box.add_child(join_row)
+	join.add_child(join_row)
 	ip_edit = LineEdit.new()
-	ip_edit.placeholder_text = "Paste an invite code (ABCDE-FGHIJ) or an IP"
-	ip_edit.tooltip_text = "The host gets an invite code when they host (shown in game and in the pause menu).\nPlain IP addresses work too (LAN, Radmin, Hamachi...)."
+	ip_edit.placeholder_text = "Invite code (ABCDE-FGHIJ) or IP"
+	ip_edit.tooltip_text = "The host gets an invite code when they host (shown in game and in their pause menu).\nPlain IP addresses work too (LAN, Radmin, Hamachi...)."
 	if FileAccess.file_exists(LAST_JOIN):
 		ip_edit.text = FileAccess.get_file_as_string(LAST_JOIN).strip_edges()
 	ip_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ip_edit.custom_minimum_size = Vector2(0, 50)
 	ip_edit.text_submitted.connect(func(_t: String): _on_join())
 	join_row.add_child(ip_edit)
-	var join_btn := _btn("JOIN", _on_join, Color(0.4, 0.8, 1.0))
-	join_btn.custom_minimum_size = Vector2(140, 0)
-	join_row.add_child(join_btn)
-	# parties on the same network (found automatically)
+	var paste := _small_btn("Paste", func(): ip_edit.text = DisplayServer.clipboard_get().strip_edges())
+	paste.custom_minimum_size = Vector2(80, 50)
+	join_row.add_child(paste)
+	join.add_child(_btn("JOIN", _on_join, Color(0.4, 0.8, 1.0)))
 	lan_box = VBoxContainer.new()
 	lan_box.add_theme_constant_override("separation", 4)
-	box.add_child(lan_box)
+	join.add_child(lan_box)
+	join.add_child(_small_btn("Back", func(): _show_page("home")))
 	Net.link.lan_games_changed.connect(_refresh_lan)
 	Net.link.listen_lan()
-
-	var row := GridContainer.new()
-	row.columns = 2
-	row.add_theme_constant_override("h_separation", 8)
-	row.add_theme_constant_override("v_separation", 8)
-	box.add_child(row)
-	row.add_child(_btn("Customize", _on_customize))
-	row.add_child(_btn("Workshop", _on_workshop))
-	row.add_child(_btn("Settings", func(): _open_settings(layer)))
-	row.add_child(_btn("Quit", func(): get_tree().quit()))
-	for c in row.get_children():
-		c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	status = Label.new()
 	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status.add_theme_color_override("font_color", Color(1, 1, 0.7))
-	box.add_child(status)
+	col.add_child(status)
+	_show_page("home")
 
-	box.add_child(LauncherPanel.new())   # version, check for updates, install them
-
+	# ---- bottom corners: a tip, and the version / updates
 	var tip := Label.new()
 	tip.text = TIPS[randi() % TIPS.size()]
-	tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tip.add_theme_color_override("font_color", Color(1, 1, 1, 0.8))
-	box.add_child(tip)
+	tip.add_theme_font_size_override("font_size", 14)
+	tip.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
+	tip.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	tip.offset_left = 16
+	tip.offset_top = -34
+	tip.offset_bottom = -12
+	menu.add_child(tip)
+	var upd := LauncherPanel.new()
+	upd.compact = true
+	upd.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	upd.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	upd.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	upd.offset_right = -12
+	upd.offset_bottom = -12
+	menu.add_child(upd)
+
+func _page(parent: Control, id: String) -> VBoxContainer:
+	var p := VBoxContainer.new()
+	p.add_theme_constant_override("separation", 10)
+	parent.add_child(p)
+	_pages[id] = p
+	return p
+
+func _show_page(id: String) -> void:
+	for k in _pages:
+		(_pages[k] as Control).visible = k == id
+	if status != null:
+		status.text = ""
+	if id == "join" and ip_edit != null:
+		ip_edit.grab_focus()
+
+func _heading(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", 28)
+	l.add_theme_color_override("font_color", Color(1, 0.9, 0.5))
+	return l
+
+func _small_btn(text: String, on: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = Vector2(0, 40)
+	b.add_theme_font_size_override("font_size", 16)
+	b.pressed.connect(on)
+	return b
 
 ## In-game updater: pick the new wobbly_hours.zip and its files are copied over this game folder
 ## (works when you run the game from the project folder / Godot editor; for an exported .exe use update.bat
@@ -295,6 +378,7 @@ func _teardown(message: String) -> void:
 		world = null
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	menu.show()
+	_show_page("home")
 	status.text = message
 	Net.link.listen_lan()
 	if _music != null and _music.stream != null:

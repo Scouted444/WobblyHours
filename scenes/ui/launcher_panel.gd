@@ -23,6 +23,8 @@ var _http: HTTPRequest
 var _latest := {}
 var _downloading := false
 var _zip_path := ""
+var compact := false   # main menu corner: just "v1.30  Up to date", the update button when there is one, and "..."
+var _more_row: Control
 
 func _ready() -> void:
 	var box := VBoxContainer.new()
@@ -32,14 +34,18 @@ func _ready() -> void:
 	top.add_theme_constant_override("separation", 8)
 	box.add_child(top)
 	var ver := Label.new()
-	ver.text = "Version %s" % GameVersion.VERSION
-	ver.add_theme_font_size_override("font_size", 18)
+	ver.text = ("v%s" if compact else "Version %s") % GameVersion.VERSION
+	ver.add_theme_font_size_override("font_size", 14 if compact else 18)
 	top.add_child(ver)
 	_status = Label.new()
 	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status.custom_minimum_size = Vector2(260, 0)
+	_status.custom_minimum_size = Vector2(190 if compact else 260, 0)
+	if compact:
+		_status.add_theme_font_size_override("font_size", 14)
+		_status.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
+		add_theme_stylebox_override("panel", UITheme.box(Color(0.08, 0.05, 0.15, 0.55), Color(0, 0, 0, 0), 10, 0, 0))
 	top.add_child(_status)
 	_bar = ProgressBar.new()
 	_bar.visible = false
@@ -48,6 +54,7 @@ func _ready() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	box.add_child(row)
+	_more_row = row
 	_btn_check = Button.new()
 	_btn_check.text = "Check for updates"
 	_btn_check.pressed.connect(check)
@@ -56,7 +63,17 @@ func _ready() -> void:
 	_btn_update.text = "Update now"
 	_btn_update.visible = false
 	_btn_update.pressed.connect(_download)
-	row.add_child(_btn_update)
+	if compact:
+		top.add_child(_btn_update)   # the one button people need, right next to the version
+		var more := Button.new()
+		more.text = "..."
+		more.tooltip_text = "More update options"
+		more.flat = true
+		more.pressed.connect(func(): _more_row.visible = not _more_row.visible)
+		top.add_child(more)
+		row.visible = false
+	else:
+		row.add_child(_btn_update)
 	var from_file := Button.new()
 	from_file.text = "Update from a zip..."
 	from_file.pressed.connect(_pick_zip)
@@ -136,7 +153,7 @@ func _on_manifest(result: int, code: int, _headers: PackedStringArray, body: Pac
 	_latest = d
 	var newer := GameVersion.compare(str(_latest["version"]), GameVersion.VERSION)
 	if newer > 0:
-		_status.text = "Update available: %s  %s" % [_latest["version"], str(_latest.get("notes", ""))]
+		_status.text = ("Update %s available" % _latest["version"]) if compact else "Update available: %s  %s" % [_latest["version"], str(_latest.get("notes", ""))]
 		_btn_update.visible = _zip_url() != ""
 		if _zip_url() == "":
 			_status.text += "\n(no download for this kind of install)"

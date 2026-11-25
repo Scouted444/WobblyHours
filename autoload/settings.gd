@@ -11,6 +11,7 @@ var volume := 0.8
 var music := 0.5
 var fullscreen := false
 var gore := false        # blood and dismemberment (only on this computer)
+var realistic := false   # realistic graphics: global illumination, reflections, soft shadows, fog...
 
 func _ready() -> void:
 	if FileAccess.file_exists(PATH):
@@ -22,6 +23,7 @@ func _ready() -> void:
 			music = clampf(float(d.get("music", music)), 0.0, 1.0)
 			fullscreen = bool(d.get("fullscreen", fullscreen))
 			gore = bool(d.get("gore", gore))
+			realistic = bool(d.get("realistic", realistic))
 	apply()
 	get_tree().node_added.connect(_on_node_added)
 
@@ -33,7 +35,7 @@ func apply() -> void:
 func save() -> void:
 	var f := FileAccess.open(PATH, FileAccess.WRITE)
 	if f != null:
-		f.store_string(JSON.stringify({"sensitivity": sensitivity, "fov": fov, "volume": volume, "music": music, "fullscreen": fullscreen, "gore": gore}))
+		f.store_string(JSON.stringify({"sensitivity": sensitivity, "fov": fov, "volume": volume, "music": music, "fullscreen": fullscreen, "gore": gore, "realistic": realistic}))
 
 func _on_node_added(n: Node) -> void:
 	if n is BaseButton:

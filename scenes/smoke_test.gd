@@ -24,6 +24,10 @@ func _log(msg: String) -> void:
 
 func _go() -> void:
 	await _wait(0.5)
+	_log("menu pages")
+	for pg in ["host", "join", "home"]:
+		main.call("_show_page", pg)
+		await _wait(0.1)
 	_log("hosting")
 	main.call("_on_host")
 	for i in 100:
@@ -41,6 +45,17 @@ func _go() -> void:
 	await _wait(2.0)
 	_check_layout()
 	_report_town()
+	Settings.realistic = true
+	Settings.apply()
+	await _wait(1.5)
+	_log("graphics: realistic applied=%d sdfgi=%s" % [world._gfx, world._env.sdfgi_enabled])
+	var sp := SettingsPanel.new()
+	add_child(sp)
+	await _wait(0.2)
+	sp.queue_free()
+	Settings.realistic = false
+	Settings.apply()
+	_log("graphics: back to normal=%d" % world._gfx)
 	_invite_test()
 	await _seat_report()
 	await _ragdoll_test()

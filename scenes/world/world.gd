@@ -515,26 +515,133 @@ func _launch(body: Node3D, up: float, push: Vector3) -> void:
 			(body as RigidBody3D).linear_velocity = Vector3(push.x, up * 0.85, push.z)
 
 # --------------------------------------------------------------- environment
-func _build_environment() -> void:
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-50, -30, 0)
-	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 80.0
-	add_child(sun)
+var _sun: DirectionalLight3D
+var _env: Environment
+var _gfx := -1          # which look is applied (0 normal, 1 realistic)
+var _vp_defaults := {}
 
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
-	var sky := Sky.new()
-	sky.sky_material = ProceduralSkyMaterial.new()
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.9
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.ssao_enabled = true
-	env.glow_enabled = true
+func _build_environment() -> void:
+	_sun = DirectionalLight3D.new()
+	_sun.rotation_degrees = Vector3(-50, -30, 0)
+	_sun.shadow_enabled = true
+	add_child(_sun)
+	_env = Environment.new()
+	_env.background_mode = Environment.BG_SKY
+	_env.sky = Sky.new()
+	_env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	_env.glow_enabled = true
 	var we := WorldEnvironment.new()
-	we.environment = env
+	we.environment = _env
 	add_child(we)
+	Settings.changed.connect(_apply_graphics)
+	_apply_graphics()
+
+## Normal look (cheap, cartoony) or Settings.realistic: physically based sky, global illumination
+## (SDFGI), screen-space reflections and bounce light, soft high-res shadows, sun rays through
+## volumetric fog, ACES colour, and 4x anti-aliasing. Switches live from the settings.
+func _apply_graphics() -> void:
+	var real := 1 if Settings.realistic else 0
+	if real == _gfx or _env == null:
+		return
+	_gfx = real
+	var vp := get_viewport()
+	if _vp_defaults.is_empty():
+		_vp_defaults = {"msaa": vp.msaa_3d, "ssaa": vp.screen_space_aa, "lod": vp.mesh_lod_threshold}
+	var env := _env
+	var on := real == 1
+	if on:
+		var psky := PhysicalSkyMaterial.new()
+		psky.turbidity = 8.0
+		psky.mie_coefficient = 0.004
+		psky.sun_disk_scale = 1.5
+		psky.ground_color = Color(0.25, 0.27, 0.22)
+		psky.energy_multiplier = 1.0
+		env.sky.sky_material = psky
+		env.tonemap_mode = Environment.TONE_MAPPER_ACES
+		env.tonemap_exposure = 1.1
+		env.tonemap_white = 6.0
+		env.ambient_light_energy = 1.0
+		env.ambient_light_sky_contribution = 1.0
+		env.sdfgi_enabled = true
+		env.sdfgi_use_occlusion = true
+		env.sdfgi_cascades = 4
+		env.sdfgi_min_cell_size = 0.2
+		env.sdfgi_y_scale = Environment.SDFGI_Y_SCALE_75_PERCENT
+		env.sdfgi_energy = 1.0
+		env.ssr_enabled = true
+		env.ssr_max_steps = 64
+		env.ssr_fade_in = 0.15
+		env.ssr_fade_out = 2.0
+		env.ssr_depth_tolerance = 0.2
+		env.ssao_enabled = true
+		env.ssao_radius = 1.2
+		env.ssao_intensity = 2.0
+		env.ssil_enabled = true
+		env.glow_intensity = 0.6
+		env.glow_bloom = 0.05
+		env.glow_hdr_threshold = 1.0
+		env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
+		env.volumetric_fog_enabled = true
+		env.volumetric_fog_density = 0.006
+		env.volumetric_fog_albedo = Color(0.9, 0.92, 1.0)
+		env.volumetric_fog_anisotropy = 0.6
+		env.volumetric_fog_length = 120.0
+		env.volumetric_fog_sky_affect = 0.25
+		env.adjustment_enabled = true
+		env.adjustment_contrast = 1.07
+		env.adjustment_saturation = 1.08
+		_sun.light_color = Color(1.0, 0.95, 0.88)
+		_sun.light_energy = 1.25
+		_sun.light_angular_distance = 0.6
+		_sun.shadow_blur = 1.3
+		_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+		_sun.directional_shadow_max_distance = 160.0
+		_sun.light_volumetric_fog_energy = 1.6
+		RenderingServer.directional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_HIGH)
+		RenderingServer.positional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_MEDIUM)
+		RenderingServer.directional_shadow_atlas_set_size(8192, true)
+		vp.msaa_3d = Viewport.MSAA_4X
+		vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+		vp.mesh_lod_threshold = 0.5
+	else:
+		env.sky.sky_material = ProceduralSkyMaterial.new()
+		env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+		env.tonemap_exposure = 1.0
+		env.tonemap_white = 1.0
+		env.ambient_light_energy = 0.9
+		env.sdfgi_enabled = false
+		env.ssr_enabled = false
+		env.ssao_enabled = true
+		env.ssao_radius = 1.0
+		env.ssao_intensity = 2.0
+		env.ssil_enabled = false
+		env.glow_intensity = 0.8
+		env.glow_bloom = 0.0
+		env.glow_hdr_threshold = 1.0
+		env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
+		env.volumetric_fog_enabled = false
+		env.adjustment_enabled = false
+		_sun.light_color = Color.WHITE
+		_sun.light_energy = 1.0
+		_sun.light_angular_distance = 0.0
+		_sun.shadow_blur = 1.0
+		_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+		_sun.directional_shadow_max_distance = 80.0
+		_sun.light_volumetric_fog_energy = 1.0
+		RenderingServer.directional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_LOW)
+		RenderingServer.positional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_LOW)
+		RenderingServer.directional_shadow_atlas_set_size(4096, true)
+		vp.msaa_3d = _vp_defaults["msaa"]
+		vp.screen_space_aa = _vp_defaults["ssaa"]
+		vp.mesh_lod_threshold = _vp_defaults["lod"]
+
+func _exit_tree() -> void:
+	# leaving the party: put the viewport back how the menu expects it
+	if _gfx == 1 and not _vp_defaults.is_empty():
+		var vp := get_viewport()
+		vp.msaa_3d = _vp_defaults["msaa"]
+		vp.screen_space_aa = _vp_defaults["ssaa"]
+		vp.mesh_lod_threshold = _vp_defaults["lod"]
 
 # ---------------------------------------------------------------------- HUD
 func _build_hud() -> void:
