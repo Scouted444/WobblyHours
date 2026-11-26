@@ -197,6 +197,67 @@ func _play(name_suffix: String) -> void:
 	_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
 	_anim.play(n, 0.15)
 
+# ---- procedural feet (FootPlanter): feet stay planted on the real ground and step to keep up
+var feet_enabled := true
+var _planter: FootPlanter
+var _plant_on := false
+var _vel := Vector3.ZERO
+var _last_pos := Vector3.ZERO
+var _hip_drop := 0.0
+var _ankle_cache := -1.0
+const PLANT_RANGE := 45.0     # beyond this from the camera, the cheaper swinging-legs walk is used
+
+## The physics body I belong to (its capsule must not count as ground).
+func _owner_rids() -> Array[RID]:
+	var out: Array[RID] = []
+	var n := get_parent()
+	while n != null:
+		if n is CollisionObject3D:
+			out.append((n as CollisionObject3D).get_rid())
+			break
+		n = n.get_parent()
+	return out
+
+## How high the ankle sits above the sole (the model's own proportions).
+func _ankle_h() -> float:
+	if _ankle_cache > 0.0:
+		return _ankle_cache
+	var b := int(_bone.get("Foot.L", -1))
+	if b < 0 or _sk == null:
+		return 0.07
+	var p := _holder.global_transform.affine_inverse() * (_sk.global_transform * _sk.get_bone_global_rest(b).origin)
+	_ankle_cache = clampf(p.y, 0.02, 0.2)
+	return _ankle_cache
+
+## Runs the feet for this frame; returns true when they're in charge of the legs.
+func _feet_step(delta: float) -> bool:
+	var pos := global_position
+	if delta > 0.0:
+		var v := (pos - _last_pos) / delta
+		if v.length() > 30.0:   # teleported
+			v = Vector3.ZERO
+			if _planter != null:
+				_planter.reset()
+		_vel = _vel.lerp(v, 1.0 - exp(-12.0 * delta))
+	_last_pos = pos
+	var want := feet_enabled and _rag.is_empty() and (_state == 0 or _state == 1) and is_visible_in_tree() and _sk != null
+	if want:
+		var cam := get_viewport().get_camera_3d()
+		want = cam != null and cam.global_position.distance_to(pos) < PLANT_RANGE
+	if not want:
+		if _plant_on and _planter != null:
+			_planter.reset()
+		_plant_on = false
+		return false
+	if _planter == null:
+		_planter = FootPlanter.new()
+		_planter.on_planted = func(_l: bool, _p: Vector3, _n: Vector3): pass
+	if not _plant_on:
+		_planter.reset()
+	_plant_on = true
+	_planter.update(delta, pos, -global_basis.z, _vel, _state == 0, get_world_3d().direct_space_state, _owner_rids())
+	return true
+
 ## Car seat targets (prop.gd CARS "ik"): {foot: Vector2(forward, height), hand: Vector2, recline}.
 var seat_ik := {}
 
@@ -552,6 +613,23 @@ func _pose_step(delta: float) -> void:
 			al = 1.7; aq = 1.7
 			el = 0.25; eq = 0.25
 			out = 0.15
+	# procedural feet: on the ground (or just in the air) the planter places the feet;
+	# the arms swing against whichever foot is out in front
+	var planting := _feet_step(delta)
+	if planting:
+		want_w = 1.0
+		if _state == 0:
+			var hip0 := global_position
+			var f_fwd := -global_basis.z
+			var off_l := (_planter.left.cur_pos - hip0).dot(f_fwd)
+			var off_r := (_planter.right.cur_pos - hip0).dot(f_fwd)
+			var sp := clampf(Vector2(_vel.x, _vel.z).length() / 5.0, 0.0, 1.3)
+			al = clampf(off_r * 1.6, -0.9, 0.9) * minf(sp * 2.0, 1.0)   # left arm swings forward with the right leg
+			aq = clampf(off_l * 1.6, -0.9, 0.9) * minf(sp * 2.0, 1.0)
+			el = 0.3 + 0.9 * clampf(sp - 0.8, 0.0, 0.5) * 2.0
+			eq = el
+			out = 0.1
+			bob = 0.0
 	# holding things overrides the arms (not while swimming / sitting)
 	if _state == 0 or _state == 1:
 		if _hold == 1:
@@ -582,6 +660,13 @@ func _pose_step(delta: float) -> void:
 	var left := hb * Vector3(1, 0, 0)      # the character's left side
 
 	_holder.position.y += bob_s   # a little hip bounce while walking
+	if planting and _state == 0:
+		var drop := clampf(_planter.support_height() - global_position.y, -0.35, 0.0)
+		var lift := maxf(_planter.left.lift, _planter.right.lift) * 0.02
+		_hip_drop = lerpf(_hip_drop, drop + lift, 1.0 - exp(-18.0 * delta))
+		_holder.position.y += _hip_drop
+	else:
+		_hip_drop = lerpf(_hip_drop, 0.0, 1.0 - exp(-18.0 * delta))
 
 	# ducking: hunch the back and drop the head (to fit under the toy car's roof);
 	# running: lean into it and rock the shoulders, but keep the head looking ahead
@@ -616,6 +701,16 @@ func _pose_step(delta: float) -> void:
 			var tgt := global_transform * Vector3(-0.12 * float(side), foot.y, -foot.x)
 			var qs := _ik2("Thigh." + sf, "Leg." + sf, "Foot." + sf, tgt, global_basis * Vector3(0, 1, -1), w)
 			_level("Foot." + sf, (qs[1] as Quaternion) * (qs[0] as Quaternion), w * 0.9)
+	elif planting:
+		# two-bone IK: put each ankle where the planter says (knees bend forward)
+		var ah := _ankle_h()
+		for side in [1, -1]:
+			var sp2: String = "L" if side == 1 else "R"
+			var ft: FootPlanter.Foot = _planter.left if side == 1 else _planter.right
+			var tgt := ft.cur_pos + ft.cur_normal * ah
+			var pole := -global_basis.z + Vector3.UP * 0.25
+			var qs2 := _ik2("Thigh." + sp2, "Leg." + sp2, "Foot." + sp2, tgt, pole, w)
+			_level("Foot." + sp2, (qs2[1] as Quaternion) * (qs2[0] as Quaternion), w * (0.95 - 0.35 * ft.lift))
 	else:
 		for side in [1, -1]:
 			var sfx: String = "L" if side == 1 else "R"

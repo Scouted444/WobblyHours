@@ -210,6 +210,7 @@ func _go() -> void:
 	_tp(Vector3(150, 0.5, 60))
 	await _wait(8.0)
 	_report_town()
+	_feet_report()
 	world.host_clear("all")
 	await _wait(2.0)
 	_log("people %d, props %d" % [get_tree().get_nodes_in_group("npcs").size(), get_tree().get_nodes_in_group("props").size()])
@@ -379,3 +380,29 @@ func _invite_test() -> void:
 	for pg in ["controls", "host", "net", "main"]:
 		pm._show(pg)
 	pm.queue_free()
+
+
+## Procedural feet: who is planting, and are their feet on the ground beside them?
+func _feet_report() -> void:
+	var on := 0
+	var total := 0
+	var shown := 0
+	for n in get_tree().get_nodes_in_group("npcs"):
+		var npc := n as Npc
+		if npc == null or npc.dead or npc._body == null:
+			continue
+		total += 1
+		var nb := npc._body
+		if nb._plant_on and nb._planter != null:
+			on += 1
+			if shown < 3:
+				shown += 1
+				var o := nb.global_position
+				var lp := nb._planter.left.cur_pos - o
+				var rp := nb._planter.right.cur_pos - o
+				var ank := -1.0
+				var b := int(nb._bone.get("Foot.L", -1))
+				if b >= 0:
+					ank = ((nb._sk.global_transform * nb._sk.get_bone_global_pose(b)).origin - nb._planter.left.cur_pos).length()
+				_log("feet: speed %.1f  L(%.2f %.2f %.2f) R(%.2f %.2f %.2f)  ankle-to-target %.3f" % [npc.move_speed, lp.x, lp.y, lp.z, rp.x, rp.y, rp.z, ank])
+	_log("feet: planting %d of %d people" % [on, total])
